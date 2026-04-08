@@ -72,12 +72,14 @@ export default function Home() {
     const lineId = `line_${pkt._key}`;
 
     // Build per-line data
+    //  - lineStyle.color = status color (green/yellow/red)
+    //  - effect.color    = protocol color (TCP cyan / UDP purple / ICMP white)
     const lineData = {
       coords: pkt.coords,
       lineStyle: { color: pkt.color, width: 1.5, opacity: 0.4, curveness: 0.3 },
       effect: {
         show: true, period: pkt.period, trailLength: 0.4,
-        symbol: 'circle', symbolSize: 7, color: pkt.color,
+        symbol: 'circle', symbolSize: 7, color: pkt.dotColor,
       },
       packetData: {
         id: pkt.id, source: pkt.from.ip, destination: pkt.to.ip,

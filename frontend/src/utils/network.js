@@ -54,6 +54,7 @@ export function createPacket() {
   }
 
   const color = { success: '#00ff88', delayed: '#ffcc00', dropped: '#ff3366' }[status];
+  const dotColor = { TCP: '#00d2ff', UDP: '#a855f7', ICMP: '#ffffff' }[protocol];
   const lifetime = (status === 'dropped' ? period * 0.6 : period) * 1000 + 300;
 
   // Find which client is involved (could be from or to)
@@ -62,7 +63,7 @@ export function createPacket() {
   return {
     id: `pkt_${counter}`,
     _key: `${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
-    from, to, status, protocol, color, period, lifetime,
+    from, to, status, protocol, color, dotColor, period, lifetime,
     clientId: client ? client.id : null,
     coords: [from.coord, endCoord],
     size: Math.floor(Math.random() * 1500) + 64,
