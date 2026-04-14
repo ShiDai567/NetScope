@@ -61,14 +61,54 @@ export default function Home() {
     setActiveClientIds(ids);
   }, []);
 
-  // ── Send a packet ──
-  const sendPacket = useCallback(() => {
+  // ── Convert backend API packet → internal format ──
+  const apiToInternal = useCallback((apiPkt) => {
+    const fromCoord = [apiPkt.source.lng, apiPkt.source.lat];
+    const toCoord   = [apiPkt.destination.lng, apiPkt.destination.lat];
+
+    const status = apiPkt.status;
+    const protocol = apiPkt.protocol;
+
+    let endCoord = toCoord;
+    let period = 3;
+    if (status === 'delayed') period = 6;
+    if (status === 'dropped') {
+      endCoord = [
+        fromCoord[0] + (toCoord[0] - fromCoord[0]) * 0.6,
+        fromCoord[1] + (toCoord[1] - fromCoord[1]) * 0.6,
+      ];
+    }
+
+    const color    = { success: '#00ff88', delayed: '#ffcc00', dropped: '#ff3366' }[status];
+    const dotColor = { TCP: '#00d2ff', UDP: '#a855f7', ICMP: '#ffffff' }[protocol];
+    const lifetime = (status === 'dropped' ? period * 0.6 : period) * 1000 + 300;
+
+    // Find which client is involved
+    const allClients = clients;
+    const client = allClients.find(c =>
+      c.ip === apiPkt.source.ip || c.ip === apiPkt.destination.ip
+    );
+
+    return {
+      id: apiPkt.id,
+      _key: `${Date.now()}_${Math.random().toString(36).slice(2,6)}`,
+      from: { name: apiPkt.source.name, ip: apiPkt.source.ip, coord: fromCoord },
+      to: { name: apiPkt.destination.name, ip: apiPkt.destination.ip, coord: toCoord },
+      status, protocol, color, dotColor, period, lifetime,
+      clientId: client ? client.id : null,
+      coords: [fromCoord, endCoord],
+      size: apiPkt.payloadSize,
+      timestamp: apiPkt.timestamp,
+    };
+  }, []);
+
+  // ── Render a packet on the map ──
+  const renderPacket = useCallback((pkt) => {
     if (activeRef.current.size >= MAX_CONCURRENT) return;
 
     const chart = getChart();
     if (!chart) return;
 
-    const pkt = createPacket();
     const lineId = `line_${pkt._key}`;
 
     // Build per-line data
@@ -89,7 +129,7 @@ export default function Home() {
       },
     };
 
-    // ── ADD: Merge a new series (default merge mode — existing series untouched) ──
+    // ADD: Merge a new series (existing series untouched)
     try {
       const existing = (chart.getOption().series || []).filter(Boolean);
       chart.setOption({
@@ -112,29 +152,24 @@ export default function Home() {
     activeRef.current.set(lineId, pkt.clientId);
     syncClientVisibility();
 
-    // ── REMOVE: After lifetime, hide then cleanup ──
+    // REMOVE: After lifetime, hide then cleanup
     setTimeout(() => {
       const c = getChart();
       if (c) {
         try {
-          // Just clear this series' data — merge mode, no animation reset on others
           c.setOption({ series: [{ id: lineId, data: [], effect: { show: false } }] });
         } catch { /* chart may be gone */ }
       }
       activeRef.current.delete(lineId);
       syncClientVisibility();
 
-      // If no active lines remain, do a one-time full cleanup of phantom series
       if (activeRef.current.size === 0 && c) {
         setTimeout(() => {
           try {
             const chart2 = getChart();
             if (!chart2) return;
             const opt = chart2.getOption();
-            // Keep only non-line series (servers, clients)
-            const baseSeries = (opt.series || []).filter(
-              s => s && s.type !== 'lines'
-            );
+            const baseSeries = (opt.series || []).filter(s => s && s.type !== 'lines');
             chart2.setOption({ series: baseSeries }, { replaceMerge: ['series'] });
           } catch { /* ignore */ }
         }, 200);
@@ -155,6 +190,30 @@ export default function Home() {
       return next.length > 30 ? next.slice(-30) : next;
     });
   }, [getChart, syncClientVisibility]);
+
+  // ── Manual send (button) — uses local generator ──
+  const sendPacket = useCallback(() => {
+    renderPacket(createPacket());
+  }, [renderPacket]);
+
+  // ── Auto-poll backend every 1 second ──
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch('http://localhost:4000/api/packet');
+        if (!res.ok) return;
+        const packets = await res.json();
+        packets.forEach(apiPkt => {
+          const pkt = apiToInternal(apiPkt);
+          renderPacket(pkt);
+        });
+      } catch {
+        // Backend not running — silently skip
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [apiToInternal, renderPacket]);
 
   // ── Lock vertical drag ──
   const handleGeoRoam = useCallback(() => {
