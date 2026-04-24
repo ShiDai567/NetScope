@@ -26,9 +26,9 @@ NetScope 是一个网络数据包流转可视化项目，用科幻风格的世�
 
 ### 后端
 
-- Node.js
-- Express
-- CORS
+- Python 3.13
+- Django 6.0.4
+- SQLite
 
 ## 界面与交互说明
 
@@ -56,9 +56,15 @@ NetScope 是一个网络数据包流转可视化项目，用科幻风格的世�
 
 ```text
 NetScope/
-├── backend/          # Express mock API
-│   ├── package.json
-│   └── server.js
+├── backend/          # Django backend
+│   ├── config/
+│   ├── docs/
+│   ├── integrations/
+│   ├── traffic/
+│   ├── manage.py
+│   └── requirements.txt
+├── ikuai-sdk/        # Reusable iKuai Python SDK
+│   └── ikuai_sdk/
 ├── frontend/         # Next.js 可视化前端
 │   ├── package.json
 │   ├── next.config.ts
@@ -76,11 +82,13 @@ NetScope/
 
 ### 1. 安装依赖
 
-分别进入前后端目录安装依赖：
+前后端分别安装依赖：
 
 ```bash
 cd backend
-npm install
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env
 ```
 
 ```bash
@@ -92,7 +100,8 @@ npm install
 
 ```bash
 cd backend
-npm run dev
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver 0.0.0.0:4000
 ```
 
 后端默认运行在：
@@ -130,7 +139,8 @@ npm run lint
 ### backend
 
 ```bash
-npm run dev
+.venv/bin/python manage.py migrate
+.venv/bin/python manage.py runserver 0.0.0.0:4000
 ```
 
 ## API 说明
@@ -180,6 +190,53 @@ npm run dev
 }
 ```
 
+### `GET /api/nodes`
+
+返回当前启用的网络节点。
+
+### `GET /api/routes`
+
+返回当前启用的可用链路。
+
+### `POST /api/ikuai/login`
+
+登录 iKuai 面板并返回 `sess_key`、完整 cookies，以及后续调用可直接复用的 `Cookie` 头。
+
+请求示例：
+
+```json
+{
+  "routerUrl": "http://10.1.1.1",
+  "username": "admin",
+  "password": "123"
+}
+```
+
+返回示例：
+
+```json
+{
+  "loginUrl": "http://10.1.1.1/Action/login",
+  "requestMode": "json",
+  "requestPayload": {
+    "username": "admin",
+    "passwd": "202cb962ac59075b964b07152d234b70",
+    "pass": "ac59075b964b07150000",
+    "remember_password": ""
+  },
+  "upstreamStatus": 200,
+  "upstreamResponse": {
+    "Result": 10000,
+    "ErrMsg": "Succeess"
+  },
+  "cookies": {
+    "sess_key": "0249f5edebd84e26103c1193a4ede2c8"
+  },
+  "sess_key": "0249f5edebd84e26103c1193a4ede2c8",
+  "cookieHeader": "sess_key=0249f5edebd84e26103c1193a4ede2c8; username=admin; login=1"
+}
+```
+
 ## 当前内置节点
 
 项目当前内置了一组示例节点：
@@ -191,17 +248,20 @@ npm run dev
   - 服务器 <-> 服务器
   - 不支持 客户端 <-> 客户端
 
-这些数据定义在：
+这些数据由 Django 模型和初始迁移提供：
 
-- `frontend/src/utils/network.js`
-- `backend/server.js`
+- `backend/traffic/models.py`
+- `backend/traffic/migrations/0002_seed_network_data.py`
 
 ## 开发说明
 
 - 前端页面核心入口为 `frontend/src/app/page.jsx`
 - 样式定义位于 `frontend/src/app/globals.css`
-- 后端使用 mock 数据生成器随机返回网络包，适合演示和原型开发
-- 如果需要接入真实网络采集数据，可以直接替换后端 `generatePacket()` 逻辑或新增真实数据源接口
+- API 设计文档见 `backend/docs/api-design.md`
+- 数据库设计文档见 `backend/docs/database-design.md`
+- 后端使用 Django + SQLite，随机包生成逻辑位于 `backend/traffic/services.py`
+- iKuai 登录 SDK 位于 `ikuai-sdk/ikuai_sdk/`，Django 集成层在 `backend/integrations/services.py`
+- 运行环境变量示例见 `backend/.env.example`，代理或外网域名访问时需配置 `DJANGO_ALLOWED_HOSTS`
 
 ## 后续可扩展方向
 
