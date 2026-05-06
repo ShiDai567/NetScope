@@ -1,5 +1,4 @@
 from django.db import models
-from django.utils import timezone
 
 
 class NetworkNode(models.Model):
@@ -63,52 +62,3 @@ class NetworkRoute(models.Model):
 
     def __str__(self) -> str:
         return f"{self.source_node.node_id} -> {self.destination_node.node_id}"
-
-
-class PacketEvent(models.Model):
-    class Protocol(models.TextChoices):
-        TCP = "TCP", "TCP"
-        UDP = "UDP", "UDP"
-        ICMP = "ICMP", "ICMP"
-
-    class Status(models.TextChoices):
-        SUCCESS = "success", "Success"
-        DELAYED = "delayed", "Delayed"
-        DROPPED = "dropped", "Dropped"
-
-    packet_id = models.CharField(max_length=64, unique=True, db_index=True, blank=True)
-    source_node = models.ForeignKey(
-        NetworkNode,
-        on_delete=models.CASCADE,
-        related_name="source_packets",
-    )
-    destination_node = models.ForeignKey(
-        NetworkNode,
-        on_delete=models.CASCADE,
-        related_name="destination_packets",
-    )
-    protocol = models.CharField(max_length=16, choices=Protocol.choices, db_index=True)
-    status = models.CharField(max_length=16, choices=Status.choices, db_index=True)
-    payload_size = models.PositiveIntegerField()
-    event_timestamp = models.DateTimeField(default=timezone.now, db_index=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ["-event_timestamp", "-id"]
-        indexes = [
-            models.Index(fields=["event_timestamp", "status"]),
-            models.Index(fields=["source_node", "destination_node", "event_timestamp"]),
-        ]
-
-    def save(self, *args, **kwargs):
-        if self._state.adding and not self.packet_id:
-            super().save(*args, **kwargs)
-            self.packet_id = f"pkt_{self.pk:06d}"
-            kwargs["force_insert"] = False
-            return super().save(update_fields=["packet_id"])
-        return super().save(*args, **kwargs)
-
-    def __str__(self) -> str:
-        return self.packet_id or f"packet-{self.pk}"
-
-# Create your models here.

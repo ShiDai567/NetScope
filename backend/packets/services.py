@@ -3,7 +3,8 @@ import random
 from django.db import transaction
 from django.utils import timezone
 
-from .models import NetworkRoute, PacketEvent
+from topology.models import NetworkRoute
+from .models import PacketEvent
 
 
 STATUSES = [
@@ -18,27 +19,6 @@ PROTOCOLS = [
     PacketEvent.Protocol.UDP,
     PacketEvent.Protocol.ICMP,
 ]
-
-
-def serialize_node(node):
-    return {
-        "id": node.node_id,
-        "name": node.name,
-        "ip": node.ip_address,
-        "type": node.node_type,
-        "lat": float(node.latitude),
-        "lng": float(node.longitude),
-        "isActive": node.is_active,
-    }
-
-
-def serialize_route(route):
-    return {
-        "id": route.id,
-        "sourceNodeId": route.source_node.node_id,
-        "destinationNodeId": route.destination_node.node_id,
-        "isActive": route.is_active,
-    }
 
 
 def serialize_packet_event(packet):

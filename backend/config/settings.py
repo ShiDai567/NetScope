@@ -29,7 +29,7 @@ def get_list(name: str, default: list[str]) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-SDK_DIR = BASE_DIR.parent / "ikuai-sdk"
+SDK_DIR = BASE_DIR.parent / "sdk"
 if str(SDK_DIR) not in sys.path:
     sys.path.insert(0, str(SDK_DIR))
 load_dotenv(BASE_DIR / ".env")
@@ -55,8 +55,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'traffic',
-    'integrations',
+    'system',
+    'topology',
+    'packets',
+    'ikuai',
 ]
 
 MIDDLEWARE = [

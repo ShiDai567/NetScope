@@ -200,7 +200,7 @@ export default function Home() {
   useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const res = await fetch('http://localhost:4000/api/packet');
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_BASE_URL}/api/packet`);
         if (!res.ok) return;
         const packets = await res.json();
         packets.forEach(apiPkt => {
@@ -341,8 +341,8 @@ export default function Home() {
 
       <div className="brand-header">
         <div style={{ textAlign: 'center' }}>
-          <div className="brand-title">NETSCOPE</div>
-          <div className="brand-subtitle">Global Network Packet Visualizer</div>
+          <div className="brand-title" suppressHydrationWarning>NETSCOPE</div>
+          <div className="brand-subtitle" suppressHydrationWarning>Global Network Packet Visualizer</div>
         </div>
       </div>
 
@@ -350,7 +350,7 @@ export default function Home() {
       <div className="glass-panel" style={{ position: 'absolute', bottom: '20px', left: '20px', padding: '20px', zIndex: 10, width: '300px' }}>
         <div style={{ fontFamily: "'Orbitron', sans-serif", fontWeight: 700, fontSize: '11px', color: '#64ffda', letterSpacing: '3px', textTransform: 'uppercase', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
           <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#64ffda', boxShadow: '0 0 8px #64ffda', animation: 'pulse 2s ease-in-out infinite' }} />
-          LIVE MONITOR
+          <span suppressHydrationWarning>LIVE MONITOR</span>
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
