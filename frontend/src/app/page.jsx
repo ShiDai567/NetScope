@@ -31,6 +31,13 @@ function Particles() {
 // ════════════════════════════════════════════════════════════════
 const MAX_CONCURRENT = 8;
 
+// Curveness per status so lines with different status never overlap
+const STATUS_CURVE = {
+  success: 0.2,
+  delayed: 0.0,
+  dropped: -0.2,
+};
+
 export default function Home() {
   const chartRef = useRef(null);
   const [mapLoaded, setMapLoaded] = useState(false);
@@ -38,8 +45,13 @@ export default function Home() {
   const [activeClientIds, setActiveClientIds] = useState(new Set());
   const [history, setHistory] = useState([]);
 
-  // Track active line IDs (NOT React-rendered — drives chart directly)
-  const activeRef = useRef(new Map()); // lineId → clientId
+  // Track active packet entries: lineItemKey -> { clientId, timeoutId, seriesId }
+  // lineItemKey = `${seriesId}::${packetKey}`
+  const activeRef = useRef(new Map());
+
+  // ── Incremental line series management ──
+  // seriesId -> series object (id, type, data, ...)
+  const linesSeriesRef = useRef(new Map());
 
   // ── Load world map ──
   useEffect(() => {
@@ -57,7 +69,7 @@ export default function Home() {
 
   // ── Helper: sync active client IDs to React state ──
   const syncClientVisibility = useCallback(() => {
-    const ids = new Set([...activeRef.current.values()].filter(Boolean));
+    const ids = new Set([...activeRef.current.values()].map(v => v.clientId).filter(Boolean));
     setActiveClientIds(ids);
   }, []);
 
@@ -69,7 +81,6 @@ export default function Home() {
     const status = apiPkt.status;
     const protocol = apiPkt.protocol;
 
-    let endCoord = toCoord;
     let period = 3;
     if (status === 'delayed') period = 6;
 
@@ -77,7 +88,6 @@ export default function Home() {
     const dotColor = { TCP: '#00d2ff', UDP: '#a855f7', ICMP: '#ffffff' }[protocol];
     const lifetime = (status === 'dropped' ? period * 0.6 : period) * 1000 + 300;
 
-    // Find which client is involved
     const allClients = clients;
     const client = allClients.find(c =>
       c.ip === apiPkt.source.ip || c.ip === apiPkt.destination.ip
@@ -90,27 +100,43 @@ export default function Home() {
       to: { name: apiPkt.destination.name, ip: apiPkt.destination.ip, coord: toCoord },
       status, protocol, color, dotColor, period, lifetime,
       clientId: client ? client.id : null,
-      coords: [fromCoord, endCoord],
+      coords: [fromCoord, toCoord],
       size: apiPkt.payloadSize,
       timestamp: apiPkt.timestamp,
     };
   }, []);
 
-  // ── Render a packet on the map ──
+  // ── Build an undirected route key (so A→B and B→A share the same line series) ──
+  const getRouteKey = useCallback((fromCoord, toCoord) => {
+    const f = `${fromCoord[0].toFixed(4)},${fromCoord[1].toFixed(4)}`;
+    const t = `${toCoord[0].toFixed(4)},${toCoord[1].toFixed(4)}`;
+    return f < t ? `${f}_${t}` : `${t}_${f}`;
+  }, []);
+
+  // ── Build a stable series ID from undirected route + status ──
+  // Same status packets between A↔B share one series regardless of direction or protocol
+  const getSeriesId = useCallback((fromCoord, toCoord, status) => {
+    const routeKey = getRouteKey(fromCoord, toCoord);
+    return `line_${routeKey}_${status}`;
+  }, [getRouteKey]);
+
+  // ── Render a packet on the map (incremental update) ──
   const renderPacket = useCallback((pkt) => {
     if (activeRef.current.size >= MAX_CONCURRENT) return;
 
     const chart = getChart();
     if (!chart) return;
 
-    const lineId = `line_${pkt._key}`;
+    const seriesId = getSeriesId(pkt.coords[0], pkt.coords[1], pkt.status);
+    const lineItemKey = `${seriesId}::${pkt._key}`;
+    const curveness = STATUS_CURVE[pkt.status] ?? 0;
 
-    // Build per-line data
-    //  - lineStyle.color = status color (green/yellow/red)
-    //  - effect.color    = protocol color (TCP cyan / UDP purple / ICMP white)
+    // Each packet is a separate data item in the lines series,
+    // so they share the same line geometry but each has its own effect animation.
     const lineData = {
+      id: pkt._key,
       coords: pkt.coords,
-      lineStyle: { color: pkt.color, width: 1.5, opacity: 0.4, curveness: 0.3 },
+      lineStyle: { color: pkt.color, width: 1.5, opacity: 0.4, curveness },
       effect: {
         show: true, period: pkt.period, trailLength: 0.4,
         symbol: 'circle', symbolSize: 7, color: pkt.dotColor,
@@ -123,52 +149,64 @@ export default function Home() {
       },
     };
 
-    // ADD: Merge a new series (existing series untouched)
+    // Get or create the series object
+    let series = linesSeriesRef.current.get(seriesId);
+    const isNewSeries = !series;
+    if (isNewSeries) {
+      series = {
+        id: seriesId,
+        type: 'lines',
+        coordinateSystem: 'geo',
+        zlevel: 3,
+        polyline: false,
+        effect: {
+          show: true,
+          trailLength: 0.4,
+          symbol: 'circle',
+          symbolSize: 7,
+        },
+        lineStyle: { width: 1.5, opacity: 0.4 },
+        data: [],
+      };
+      linesSeriesRef.current.set(seriesId, series);
+    }
+
+    series.data.push(lineData);
+
+    // Incremental update: only send the changed series, not the whole array
     try {
-      const existing = (chart.getOption().series || []).filter(Boolean);
-      chart.setOption({
-        series: [
-          ...existing,
-          {
-            id: lineId,
-            type: 'lines',
-            coordinateSystem: 'geo',
-            zlevel: 3,
-            polyline: false,
-            effect: lineData.effect,
-            lineStyle: lineData.lineStyle,
-            data: [lineData],
-          },
-        ],
-      });
+      chart.setOption({ series: [series] });
     } catch { return; }
 
-    activeRef.current.set(lineId, pkt.clientId);
+    activeRef.current.set(lineItemKey, { clientId: pkt.clientId, seriesId });
     syncClientVisibility();
 
-    // REMOVE: After lifetime, hide then cleanup
-    setTimeout(() => {
-      const c = getChart();
-      if (c) {
-        try {
-          c.setOption({ series: [{ id: lineId, data: [], effect: { show: false } }] });
-        } catch { /* chart may be gone */ }
-      }
-      activeRef.current.delete(lineId);
-      syncClientVisibility();
+    // REMOVE: After lifetime, remove this data item from its series
+    const timeoutId = setTimeout(() => {
+      const s = linesSeriesRef.current.get(seriesId);
+      if (s) {
+        s.data = s.data.filter(d => d.id !== pkt._key);
 
-      if (activeRef.current.size === 0 && c) {
-        setTimeout(() => {
+        if (s.data.length === 0) {
+          // Remove empty series from tracking and hide it from chart
+          linesSeriesRef.current.delete(seriesId);
           try {
-            const chart2 = getChart();
-            if (!chart2) return;
-            const opt = chart2.getOption();
-            const baseSeries = (opt.series || []).filter(s => s && s.type !== 'lines');
-            chart2.setOption({ series: baseSeries }, { replaceMerge: ['series'] });
+            chart.setOption({ series: [{ id: seriesId, data: [], effect: { show: false } }] });
           } catch { /* ignore */ }
-        }, 200);
+        } else {
+          // Incremental update with the filtered data
+          try {
+            chart.setOption({ series: [s] });
+          } catch { /* ignore */ }
+        }
       }
+      activeRef.current.delete(lineItemKey);
+      syncClientVisibility();
     }, pkt.lifetime);
+
+    // Store timeoutId so we can clear it if needed
+    const entry = activeRef.current.get(lineItemKey);
+    if (entry) entry.timeoutId = timeoutId;
 
     // Stats
     setStats(prev => {
@@ -183,7 +221,7 @@ export default function Home() {
       const next = [...prev, { status: pkt.status }];
       return next.length > 30 ? next.slice(-30) : next;
     });
-  }, [getChart, syncClientVisibility]);
+  }, [getChart, syncClientVisibility, getSeriesId]);
 
   // ── Manual send (button) — uses local generator ──
   const sendPacket = useCallback(() => {
