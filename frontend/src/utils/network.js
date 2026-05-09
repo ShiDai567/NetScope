@@ -46,12 +46,6 @@ export function createPacket() {
   let endCoord = to.coord;
   let period = 3;
   if (status === 'delayed') period = 6;
-  if (status === 'dropped') {
-    endCoord = [
-      from.coord[0] + (to.coord[0] - from.coord[0]) * 0.6,
-      from.coord[1] + (to.coord[1] - from.coord[1]) * 0.6,
-    ];
-  }
 
   const color = { success: '#00ff88', delayed: '#ffcc00', dropped: '#ff3366' }[status];
   const dotColor = { TCP: '#00d2ff', UDP: '#a855f7', ICMP: '#ffffff' }[protocol];

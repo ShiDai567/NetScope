@@ -20,7 +20,7 @@ from django.db import migrations
 DEFAULT_NODES = [
     {
         "node_id": "srv_us",
-        "name": "Server (Silicon Valley)",
+        "name": "Server (Zhejiang)",
         "ip_address": "8.8.8.8",
         "node_type": "server",
         "latitude": "27.994111",

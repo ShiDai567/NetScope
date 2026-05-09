@@ -72,12 +72,6 @@ export default function Home() {
     let endCoord = toCoord;
     let period = 3;
     if (status === 'delayed') period = 6;
-    if (status === 'dropped') {
-      endCoord = [
-        fromCoord[0] + (toCoord[0] - fromCoord[0]) * 0.6,
-        fromCoord[1] + (toCoord[1] - fromCoord[1]) * 0.6,
-      ];
-    }
 
     const color    = { success: '#00ff88', delayed: '#ffcc00', dropped: '#ff3366' }[status];
     const dotColor = { TCP: '#00d2ff', UDP: '#a855f7', ICMP: '#ffffff' }[protocol];
@@ -354,9 +348,9 @@ export default function Home() {
         </div>
 
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '16px' }}>
-          <div className="stat-card neutral"><div className="stat-label">Sent</div><div className="stat-value" style={{ color: '#ccd6f6' }}>{stats.total}</div></div>
-          <div className="stat-card success"><div className="stat-label">OK</div><div className="stat-value" style={{ color: '#00ff88' }}>{stats.success}</div></div>
-          <div className="stat-card danger"><div className="stat-label">Loss</div><div className="stat-value" style={{ color: '#ff3366' }}>{stats.lossRate}%</div></div>
+          <div className="stat-card neutral"><div className="stat-label" suppressHydrationWarning>Sent</div><div className="stat-value" style={{ color: '#ccd6f6' }} suppressHydrationWarning>{stats.total}</div></div>
+          <div className="stat-card success"><div className="stat-label" suppressHydrationWarning>OK</div><div className="stat-value" style={{ color: '#00ff88' }} suppressHydrationWarning>{stats.success}</div></div>
+          <div className="stat-card danger"><div className="stat-label" suppressHydrationWarning>Loss</div><div className="stat-value" style={{ color: '#ff3366' }} suppressHydrationWarning>{stats.lossRate}%</div></div>
         </div>
 
         <div style={{ background: 'rgba(10,25,50,0.4)', border: '1px solid rgba(31,64,104,0.3)', borderRadius: '6px', padding: '4px', marginBottom: '16px' }}>
