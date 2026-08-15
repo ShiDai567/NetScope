@@ -1,24 +1,11 @@
 #!/usr/bin/env python
-"""
-manage.py
-=========
-Django 命令行管理工具入口。
-
-提供 runserver、migrate、shell、createsuperuser 等所有 Django 内置管理命令。
-开发环境直接运行：python manage.py runserver
-"""
-
+"""Django's command-line utility for administrative tasks."""
 import os
 import sys
 
 
 def main():
-    """
-    设置 DJANGO_SETTINGS_MODULE 并执行 Django 命令行工具。
-
-    如果 Django 未安装或虚拟环境未激活，会抛出 ImportError 并给出友好提示。
-    """
-    os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings')
+    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
     try:
         from django.core.management import execute_from_command_line
     except ImportError as exc:
@@ -30,5 +17,5 @@ def main():
     execute_from_command_line(sys.argv)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

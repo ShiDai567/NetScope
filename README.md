@@ -1,95 +1,84 @@
 # NetScope
 
-NetScope 是一个网络数据包流转可视化项目，用科幻风格的世界地图界面展示服务端与客户端之间的数据包传输过程。项目采用前后端分离结构：前端负责地图渲染、动画与实时统计，后端提供随机数据包的 mock API，方便演示网络监控、链路状态和协议分布等场景。
+NetScope 是一个网络数据包流转可视化项目，用科幻风格的世界/中国地图界面展示服务端与客户端之间的数据包传输过程。项目采用前后端分离结构：前端负责地图渲染、粒子动画与实时统计，后端提供模拟数据包引擎，并支持接入真实 iKuai 路由器作为数据源。
 
 ## 项目特点
 
-- 世界地图可视化展示网络节点与链路动画
-- 区分服务端与客户端节点，并按真实经纬度落点
-- 支持 `TCP`、`UDP`、`ICMP` 三种协议的包动画展示
-- 通过颜色区分成功、延迟、丢包三种状态
-- 自动轮询后端接口，持续生成动态流量效果
-- 支持手动点击 `TRANSMIT` 按钮发送本地模拟数据包
-- 提供实时统计面板，展示发送量、成功数和丢包率
-- 提供最近 30 条流量趋势小图，辅助观察波动情况
+- 世界地图 + 中国地图双视图切换，科幻风格暗色主题
+- 三种节点类型：外网服务器（红色）、公网客户端（蓝色）、内网设备（绿色）
+- 数据包粒子动画：按方向区分外弧线/内弧线/直线，状态颜色实时切换
+- TCP 状态机可视化：等待连接（呼吸闪烁）→ 请求连接（快速跳动）→ 已连接（稳定流动+拖尾）→ 关闭连接（渐隐）
+- UDP / ICMP 无状态流，支持丢包/高延迟标记
+- NAT 转换可视化：虚线显示地址转换路径，端口映射场景展示 original_dst
+- 实时控制面板：方向 / 协议 / 应用三级筛选
+- 统计面板：连接计数、方向分布、协议饼图、带宽趋势、延迟热力图、丢包率
+- 时间轴回放：支持 0.5x / 1x / 2x / 5x 倍速播放历史数据
+- iKuai 路由器直连：通过内置 SDK 登录爱快面板，拉取真实终端连接数据
 
 ## 技术栈
 
 ### 前端
 
-- Next.js 16
-- React 19
-- TypeScript
-- ECharts
-- echarts-for-react
-- Three.js 生态依赖
+- Next.js 15 + React 19 + TypeScript
+- Tailwind CSS v4
+- ECharts 5（地图 + 统计图表）
+- Three.js（星空背景）
+- Phosphor Icons
+- Geist / Geist Mono 字体
 
 ### 后端
 
-- Python 3.13
-- Django 6.0.4
-- SQLite
-
-## 界面与交互说明
-
-前端主页面使用世界地图作为可视化载体：
-
-- 菱形发光节点表示服务器
-- 圆形节点表示客户端
-- 流动的小圆点代表数据包在链路上的传输
-- 绿色链路表示成功
-- 黄色链路表示高延迟
-- 红色链路表示中途丢包
-- 协议颜色区分为：
-  - `TCP`：青色
-  - `UDP`：紫色
-  - `ICMP`：白色
-
-页面左下角控制面板提供：
-
-- 实时统计卡片
-- 最近 30 条数据的趋势图
-- 手动发送数据按钮
-- 状态与协议图例说明
+- Python 3.13 + Django 5.2
+- 内置 iKuai SDK（标准库实现，零第三方依赖）
+- SQLite（最小化配置，运行态数据在内存中）
 
 ## 项目结构
 
 ```text
 NetScope/
-├── backend/          # Django backend
-│   ├── config/
-│   ├── docs/
-│   ├── integrations/
-│   ├── traffic/
+├── AGENTS.md                  # 开发规范与需求文档
+├── README.md                  # 本文件
+├── sdk/                       # iKuai Python SDK（可复用）
+│   └── ikuai_sdk/
+│       ├── client.py
+│       ├── models.py
+│       └── exceptions.py
+├── backend/                   # Django 后端
+│   ├── config/                # 项目配置
+│   ├── traffic/               # 核心应用
+│   │   ├── simulation.py      # 模拟引擎
+│   │   ├── ikuai.py           # iKuai 轮询器
+│   │   ├── hub.py             # 全局状态中枢
+│   │   ├── stats.py           # 统计聚合器
+│   │   ├── packets.py         # 数据包方向判断与标准化
+│   │   ├── geo.py             # IP 地理位置工具
+│   │   ├── views.py           # API 视图
+│   │   └── tests.py           # 单元测试
 │   ├── manage.py
 │   └── requirements.txt
-├── ikuai-sdk/        # Reusable iKuai Python SDK
-│   └── ikuai_sdk/
-├── frontend/         # Next.js 可视化前端
-│   ├── package.json
-│   ├── next.config.ts
-│   └── src/
-│       ├── app/
-│       │   ├── layout.tsx
-│       │   ├── page.jsx
-│       │   └── globals.css
-│       └── utils/
-│           └── network.js
-└── README.md
+└── frontend/                  # Next.js 前端
+    ├── public/maps/           # GeoJSON 地图数据
+    ├── src/
+    │   ├── app/               # 页面入口
+    │   ├── components/        # 可视化组件
+    │   ├── state/             # 数据流状态管理
+    │   └── lib/               # 工具函数与类型
+    └── package.json
 ```
 
 ## 本地运行
 
 ### 1. 安装依赖
 
-前后端分别安装依赖：
+后端：
 
 ```bash
 cd backend
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
-cp .env.example .env
 ```
+
+前端：
 
 ```bash
 cd frontend
@@ -100,15 +89,10 @@ npm install
 
 ```bash
 cd backend
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py runserver 0.0.0.0:4000
+.venv/bin/python manage.py runserver 0.0.0.0:4000 --noreload
 ```
 
-后端默认运行在：
-
-```text
-http://localhost:4000
-```
+后端默认运行在 `http://localhost:4000`。
 
 ### 3. 启动前端
 
@@ -117,160 +101,49 @@ cd frontend
 npm run dev
 ```
 
-前端默认运行在：
+前端默认运行在 `http://localhost:3000`。
 
-```text
-http://localhost:3000
-```
-
-启动后，前端会每秒请求一次后端接口 `GET /api/packet`，并把返回的数据包渲染为地图上的动态传输效果。
-
-## 可用脚本
-
-### frontend
-
-```bash
-npm run dev
-npm run build
-npm run start
-npm run lint
-```
-
-### backend
-
-```bash
-.venv/bin/python manage.py migrate
-.venv/bin/python manage.py runserver 0.0.0.0:4000
-```
+启动后，前端会自动轮询后端接口获取数据包事件，并渲染为地图上的动态传输效果。
 
 ## API 说明
 
-### `GET /api/packet`
+| 接口 | 方法 | 说明 |
+|---|---|---|
+| `GET /api/health` | 健康检查 | |
+| `GET /api/packets?since=<seq>` | 增量数据包事件 | seq 之后的新事件 |
+| `GET /api/history?minutes=5` | 历史事件 | 用于时间轴回放 |
+| `GET /api/devices` | 内网设备列表 | IP / MAC / 连接数 / 速率 |
+| `GET /api/nodes` | 公网节点列表 | 服务器 + 客户端 |
+| `GET /api/stats` | 实时统计 | 连接数 / 带宽 / 延迟 / 丢包率 |
+| `GET /api/mode` | 当前数据源模式 | simulation / ikuai |
+| `POST /api/ikuai/connect` | 连接 iKuai | `{routerUrl, username, password}` |
+| `POST /api/ikuai/disconnect` | 断开 iKuai | 恢复模拟数据 |
 
-返回 1 到 3 条随机数据包数据，供前端轮询展示。
+## 接入真实 iKuai 路由器
 
-返回示例：
+1. 点击页面右上角设置图标
+2. 填写路由器地址、用户名、密码
+3. 点击"连接 iKuai"
+4. 成功后，页面左上角模式标签变为"iKuai 直连"
 
-```json
-[
-  {
-    "id": "pkt_001",
-    "source": {
-      "ip": "192.168.1.10",
-      "name": "Client (Beijing)",
-      "lat": 39.9,
-      "lng": 116.4,
-      "type": "client"
-    },
-    "destination": {
-      "ip": "8.8.8.8",
-      "name": "Server (Silicon Valley)",
-      "lat": 27.994110585072477,
-      "lng": 120.69934126685061,
-      "type": "server"
-    },
-    "protocol": "TCP",
-    "status": "success",
-    "payloadSize": 1024,
-    "timestamp": 1712450000
-  }
-]
-```
-
-### `GET /api/health`
-
-用于健康检查。
-
-返回示例：
-
-```json
-{
-  "status": "ok",
-  "uptime": 123.456
-}
-```
-
-### `GET /api/nodes`
-
-返回当前启用的网络节点。
-
-### `GET /api/routes`
-
-返回当前启用的可用链路。
-
-### `POST /api/ikuai/login`
-
-登录 iKuai 面板并返回 `sess_key`、完整 cookies，以及后续调用可直接复用的 `Cookie` 头。
-
-请求示例：
-
-```json
-{
-  "routerUrl": "http://10.1.1.1",
-  "username": "admin",
-  "password": "123"
-}
-```
-
-返回示例：
-
-```json
-{
-  "loginUrl": "http://10.1.1.1/Action/login",
-  "requestMode": "json",
-  "requestPayload": {
-    "username": "admin",
-    "passwd": "202cb962ac59075b964b07152d234b70",
-    "pass": "ac59075b964b07150000",
-    "remember_password": ""
-  },
-  "upstreamStatus": 200,
-  "upstreamResponse": {
-    "Result": 10000,
-    "ErrMsg": "Succeess"
-  },
-  "cookies": {
-    "sess_key": "0249f5edebd84e26103c1193a4ede2c8"
-  },
-  "sess_key": "0249f5edebd84e26103c1193a4ede2c8",
-  "cookieHeader": "sess_key=0249f5edebd84e26103c1193a4ede2c8; username=admin; login=1"
-}
-```
-
-## 当前内置节点
-
-项目当前内置了一组示例节点：
-
-- 1 个服务器节点
-- 3 个客户端节点
-- 支持的链路规则为：
-  - 服务器 <-> 客户端
-  - 服务器 <-> 服务器
-  - 不支持 客户端 <-> 客户端
-
-这些数据由 Django 模型和初始迁移提供：
-
-- `backend/traffic/models.py`
-- `backend/traffic/migrations/0002_seed_network_data.py`
+断开连接后自动恢复模拟数据。
 
 ## 开发说明
 
-- 前端页面核心入口为 `frontend/src/app/page.jsx`
-- 样式定义位于 `frontend/src/app/globals.css`
-- API 设计文档见 `backend/docs/api-design.md`
-- 数据库设计文档见 `backend/docs/database-design.md`
-- 后端使用 Django + SQLite，随机包生成逻辑位于 `backend/traffic/services.py`
-- iKuai 登录 SDK 位于 `ikuai-sdk/ikuai_sdk/`，Django 集成层在 `backend/integrations/services.py`
-- 运行环境变量示例见 `backend/.env.example`，代理或外网域名访问时需配置 `DJANGO_ALLOWED_HOSTS`
+- 前端页面核心入口：`frontend/src/app/page.tsx`
+- 样式定义：`frontend/src/app/globals.css`
+- 后端模拟引擎：`backend/traffic/simulation.py`
+- iKuai SDK：`sdk/ikuai_sdk/`
+- 运行环境变量示例见 `backend/.env.example`
 
-## 后续可扩展方向
+## 测试
 
-- 接入真实设备或日志系统作为数据源
-- 增加更多服务器和客户端节点
-- 增加筛选条件，如协议、地区、状态
-- 支持历史回放与时间轴控制
-- 增加更完整的告警、吞吐量和延迟监控面板
-- 引入 WebSocket 代替轮询，实现更实时的数据推送
+后端单元测试：
+
+```bash
+cd backend
+.venv/bin/python manage.py test traffic -v 2
+```
 
 ## 适用场景
 
@@ -281,4 +154,4 @@ npm run lint
 
 ## License
 
-如需开源发布，建议补充具体许可证信息，例如 `MIT`。
+MIT
