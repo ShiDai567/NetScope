@@ -245,7 +245,11 @@ class IKuaiClient:
         return login_result, connection_result
 
     def _post_login(self, *, login_url: str, payload: dict[str, str], use_json: bool):
-        headers = {"Accept": "application/json"}
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": f"{login_url.rsplit('/', 1)[0]}/",
+        }
         if use_json:
             body = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"
@@ -277,6 +281,8 @@ class IKuaiClient:
             "Accept": "application/json",
             "Content-Type": "application/json; charset=utf-8",
             "Cookie": cookie_header,
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+            "Referer": f"{url.rsplit('/', 1)[0]}/",
         }
         body = json.dumps(payload).encode("utf-8")
         req = request.Request(url, data=body, headers=headers, method="POST")
