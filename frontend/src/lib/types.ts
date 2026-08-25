@@ -1,52 +1,67 @@
+/** 全局网络智能中心 —— 统一类型定义 */
+
+export type Direction = "outbound" | "inbound" | "internal";
+
+export type Scene = "global" | "china" | "lan";
+
+export type ConnectionState =
+  | "connecting"
+  | "connected"
+  | "disconnected"
+  | "error";
+
 export interface Endpoint {
   ip: string;
   port: number;
   domain: string | null;
-  lat: number;
-  lng: number;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface NatInfo {
-  forward_addr: string;
-  src_port: number;
-  dst_port: number;
-  original_dst?: string;
+  forwardAddress?: string;
+  sourcePort?: number;
+  destinationPort?: number;
+  originalDestination?: string;
 }
 
-export interface PacketEvent {
+/** 标准化后的网络流（AGENTS.md §18 契约，前端所有组件只依赖此结构） */
+export interface NetworkFlow {
   id: string;
-  timestamp: number;
+  seq: number;
+  timestamp: number; // 秒（服务器时间）
   born: number;
-  direction: "outbound" | "inbound" | "internal";
-  app_name: string;
-  protocol: "tcp" | "udp" | "icmp";
-  status: "等待连接" | "请求连接" | "已连接" | "关闭连接" | null;
+  direction: Direction;
   source: Endpoint;
   destination: Endpoint;
-  nat_info: NatInfo;
-  total_up: number;
-  total_down: number;
-  flag?: "failed" | "lost" | "high_latency";
-  latency_ms?: number;
-  status_since?: number;
+  application: string;
+  protocol: string;
+  status: string | null;
+  bytes: {
+    upload: number;
+    download: number;
+    total: number;
+  };
+  nat?: NatInfo;
   interface?: string;
-  seq?: number;
+  flag?: "failed" | "lost" | "high_latency";
+  latencyMs?: number;
+  statusSince?: number;
 }
 
 export interface DeviceInfo {
   ip: string;
-  mac: string;
-  hostname: string;
-  vendor: string;
-  interface: string;
-  is_gateway?: boolean;
-  lat: number;
-  lng: number;
+  mac?: string;
+  hostname?: string;
+  vendor?: string;
+  interface?: string;
+  isGateway?: boolean;
+  ringIndex?: number;
+  lat: number | null;
+  lng: number | null;
   connections: number;
-  up_rate: number;
-  down_rate: number;
-  total_up?: number;
-  total_down?: number;
+  upRate: number;
+  downRate: number;
 }
 
 export interface PublicNode {
@@ -55,7 +70,13 @@ export interface PublicNode {
   domain: string | null;
   lat: number;
   lng: number;
-  type: "server" | "client" | "gateway";
+  type: "gateway" | "server" | "client";
+}
+
+export interface BandwidthSeriesPoint {
+  t: number;
+  upBps: number;
+  downBps: number;
 }
 
 export interface StatsSnapshot {
@@ -64,32 +85,46 @@ export interface StatsSnapshot {
   closed: number;
   failed: number;
   lost: number;
-  directions: Record<string, number>;
+  directions: Record<Direction, number>;
   protocols: Record<string, number>;
   apps: { name: string; count: number }[];
   bandwidth: {
-    up_bps: number;
-    down_bps: number;
-    series: [number, number, number][];
+    upBps: number;
+    downBps: number;
+    series: BandwidthSeriesPoint[];
   };
-  loss_rate: number;
-  avg_latency_ms: number;
-  latency_heatmap: {
-    x: number[];
-    y: string[];
-    data: [number, number, number][];
-  };
-  mode: string;
+  lossRate: number;
+  avgLatencyMs: number;
+  mode: "simulation" | "ikuai";
   uptime: number;
 }
 
-export type DirectionFilter = "all" | "outbound" | "inbound" | "internal";
-export type ProtocolFilter = "all" | "tcp" | "udp" | "icmp";
-export type AppFilter =
-  | "all"
-  | "DNS"
-  | "SMB"
-  | "SSL"
-  | "HTTP"
-  | "HTTPS"
-  | "其他";
+export type TimeWindow = 5 | 30 | 60 | 300 | 900 | 3600;
+
+/** 底部事件流条目 */
+export interface EventEntry {
+  id: string;
+  seq: number;
+  timestamp: number;
+  direction: Direction;
+  source: string;
+  destination: string;
+  protocol: string;
+  port: number;
+  application: string;
+  bytesTotal: number;
+  status: string | null;
+  flag?: NetworkFlow["flag"];
+}
+
+/** 地图聚合流（同一 src→dst 对的合并渲染单元） */
+export interface AggregatedFlow {
+  key: string;
+  direction: Direction;
+  from: { lat: number; lng: number };
+  to: { lat: number; lng: number };
+  packets: number;
+  bytes: number;
+  lastTimestamp: number;
+  sample: NetworkFlow;
+}
