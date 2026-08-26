@@ -12,6 +12,9 @@ class GeoInfo:
     lat: float | None
     lng: float | None
     source: str = "unknown"
+    district: str = ""
+    street: str = ""
+    isp: str = ""
 
     def location_text(self) -> str:
         """IP 归属地文本：国家·区域·城市（去空去重）。"""
@@ -30,6 +33,9 @@ class GeoInfo:
             "lat": self.lat,
             "lng": self.lng,
             "source": self.source,
+            "district": self.district,
+            "street": self.street,
+            "isp": self.isp,
         }
 
     @classmethod
@@ -40,14 +46,21 @@ class GeoInfo:
             except (TypeError, ValueError):
                 return None
 
+        def _s(value) -> str:
+            raw = value if isinstance(value, str) else ""
+            return raw.strip() if raw and raw.strip() not in ("-", "--", "null") else ""
+
         return cls(
             country=str(data.get("country") or "Unknown"),
             code=data.get("code") or None,
-            region=str(data.get("region") or ""),
-            city=str(data.get("city") or ""),
+            region=_s(data.get("region")),
+            city=_s(data.get("city")),
             lat=_f(data.get("lat")),
             lng=_f(data.get("lng")),
             source=str(data.get("source") or "cache"),
+            district=_s(data.get("district")),
+            street=_s(data.get("street")),
+            isp=_s(data.get("isp")),
         )
 
 

@@ -117,28 +117,78 @@ class DbGeoTests(DbTestCase):
 
 
 class TestHiofdProvider:
-    def test_parse_text_success(self):
-        """页面结果文本 '中国 · 上海 · 上海|121.472644|31.231706' → GeoInfo。"""
+    def test_parse_hiofd_full_fields(self):
+        """hiofd 源结果六字段 → GeoInfo（含 district/street/isp）。"""
         p = HiofdProvider()
-        info = p._parse_text("1.2.3.4", "中国 · 上海 · 上海|121.472644|31.231706")  # noqa: SLF001
+        raw = "中国 · 上海 · 上海|121.472644|31.231706|电信|浦东|张江路"
+        info = p._parse_text("1.2.3.4", f"hiofd|{raw}")  # noqa: SLF001
         assert info is not None
         assert info.country == "中国"
         assert info.region == "上海"
         assert info.city == "上海"
         assert info.lat == 31.231706
         assert info.lng == 121.472644
+        assert info.isp == "电信"
+        assert info.district == "浦东"
+        assert info.street == "张江路"
         assert info.source == "hiofd"
+
+    def test_parse_ipapi_fallback(self):
+        """ip-api.com 降级源 JSON 解析。"""
+        p = HiofdProvider()
+        payload = (
+            '{"status":"success","country":"加拿大","countryCode":"CA",'
+            '"regionName":"Quebec","city":"蒙特利尔","district":"",'
+            '"isp":"Videotron","lat":45.6085,"lon":-73.5493}'
+        )
+        info = p._parse_text("24.48.0.1", f"ipapi|{payload}")  # noqa: SLF001
+        assert info is not None
+        assert info.country == "加拿大"
+        assert info.code == "CA"
+        assert info.region == "Quebec"
+        assert info.city == "蒙特利尔"
+        assert info.isp == "Videotron"
+        assert info.source == "ip-api"
+
+    def test_parse_ipapi_failure_status(self):
+        p = HiofdProvider()
+        assert p._parse_text("1.1.1.1", 'ipapi|{"status":"fail"}') is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "ipapi|not-json") is None  # noqa: SLF001
 
     def test_parse_text_country_only(self):
         p = HiofdProvider()
-        info = p._parse_text("1.1.1.1", "澳大利亚|-27.468|153.028")  # noqa: SLF001
+        info = p._parse_text("1.1.1.1", "hiofd|澳大利亚|-27.468|153.028|||")  # noqa: SLF001
         assert info.country == "澳大利亚"
         assert info.city == ""
+        assert info.isp == "" and info.district == "" and info.street == ""
 
     def test_parse_text_timeout_and_bad(self):
         p = HiofdProvider()
-        assert p._parse_text("1.1.1.1", "TIMEOUT") is None  # noqa: SLF001
-        assert p._parse_text("1.1.1.1", "NO_DOM") is None  # noqa: SLF001
-        assert p._parse_text("1.1.1.1", "-|-|-") is None  # noqa: SLF001
-        assert p._parse_text("1.1.1.1", "中国|abc|def") is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "") is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "hiofd|TIMEOUT") is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "hiofd|-|-|-") is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "hiofd|中国|abc|def|电信|区|街") is None  # noqa: SLF001
         assert p._parse_text("1.1.1.1", "garbage") is None  # noqa: SLF001
+        assert p._parse_text("1.1.1.1", "中国|121|31|电信") is None  # noqa: SLF001  # 无源前缀
+
+
+class GeoInfoFieldsTests(DbTestCase):
+    def test_db_roundtrip_keeps_district_isp_street(self):
+        """DB 写回后再读，district/street/isp 不丢。"""
+        from network.models import GeoLookup
+
+        svc = GeoService(providers=[_provider_with(
+            {"2.2.2.2": GeoInfo("中国", None, "浙江省", "温州市", 28.0, 120.6,
+                                "hiofd", district="鹿城区", street="松台街道", isp="电信")}
+        )])
+        info = svc.lookup("2.2.2.2")
+        assert info is not None
+        row = GeoLookup.objects.get(ip_prefix="2.2.2.2")
+        assert row.district == "鹿城区"
+        assert row.street == "松台街道"
+        assert row.isp == "电信"
+        # 换实例纯 DB 读回，字段完整
+        info2 = GeoService().lookup("2.2.2.2")
+        assert info2.district == "鹿城区"
+        assert info2.isp == "电信"
+        assert info2.street == "松台街道"

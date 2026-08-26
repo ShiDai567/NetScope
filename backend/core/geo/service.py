@@ -156,6 +156,9 @@ class GeoService:
             lat=float(row.lat),
             lng=float(row.lng),
             source=f"db:{row.source}" if row.source else "db",
+            district=row.district or "",
+            street=row.street or "",
+            isp=row.isp or "",
         )
 
     def _db_put(self, ip: str, info: GeoInfo) -> None:
@@ -171,8 +174,9 @@ class GeoService:
                         "code": (info.code or "")[:8],
                         "region": info.region[:64],
                         "city": info.city[:64],
-                        "district": (getattr(info, "district", "") or "")[:64],
-                        "isp": (getattr(info, "isp", "") or "")[:128],
+                        "district": (info.district or "")[:64],
+                        "street": (info.street or "")[:128],
+                        "isp": (info.isp or "")[:128],
                         "lat": info.lat,
                         "lng": info.lng,
                         "source": info.source[:16],
