@@ -2,7 +2,7 @@
 import time
 import unittest
 
-from django.test import Client, SimpleTestCase
+from django.test import Client, SimpleTestCase, override_settings
 
 from .geo import internal_ring_position, is_private_ip, locate_public_ip
 from .packets import (
@@ -177,9 +177,17 @@ class SimulationEngineTest(SimpleTestCase):
         self.assertTrue(all("mac" in d and "hostname" in d for d in devices))
 
 
+@override_settings(IKUAI_URL="", IKUAI_USERNAME="", IKUAI_PASSWORD="", IKUAI_FALLBACK_URL="")
 class ApiTest(SimpleTestCase):
+    """API 测试强制模拟模式：.env 配置真实 iKuai 时也不访问外部路由器。"""
+
     def setUp(self):
         self.client = Client()
+        # 若此前已连上真实 iKuai（单例状态残留），切回模拟引擎保证测试确定性
+        from .hub import hub
+
+        if hub._mode != "simulation" or hub._engine is None:
+            hub.disconnect_ikuai()
 
     def test_health(self):
         resp = self.client.get("/api/health")

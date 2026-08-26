@@ -110,13 +110,17 @@ npm run dev
 推荐在 `backend/.env`（已被 git 忽略）中配置，服务启动即自动连接：
 
 ```bash
-NETSCOPE_IKUAI_URL=https://ikuai.elsworld.cn:8443
+# 主地址建议用内网面板（无 WAF 拦截）
+NETSCOPE_IKUAI_URL=http://10.0.1.1:6301
+# 主地址被 WAF 拦截 / 不可达时自动轮换到备用地址
+NETSCOPE_IKUAI_FALLBACK_URL=https://ikuai.elsworld.cn:8443
 NETSCOPE_IKUAI_USERNAME=keshihua
 NETSCOPE_IKUAI_PASSWORD=your-password
 ```
 
 三项齐全时 Django 启动后自动登录路由器并切换到真实数据源；连接失败会先以模拟模式运行，
-并每 15 秒后台重试直到成功。也可以不配置环境变量、运行时手动连接：
+并每 15 秒后台重试直到成功。登录遭遇 iKuai 防暴力 WAF 挑战时 SDK 会自动携带挑战 cookie
+重试；主地址连续失败 4 次自动切换备用地址。也可以不配置环境变量、运行时手动连接：
 
 ```bash
 curl -X POST http://localhost:8000/api/ikuai/connect \
@@ -137,8 +141,12 @@ curl -X POST http://localhost:8000/api/ikuai/connect \
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1,0.0.0.0` | 允许的主机名 |
 | `NETSCOPE_GATEWAY_LAT` / `NETSCOPE_GATEWAY_LNG` | `39.9042` / `116.4074` | 网关地理位置（内网节点聚簇中心） |
 | `NETSCOPE_IKUAI_URL` | 空 | iKuai 面板地址，与下面两项同时配置后启动即自动连接 |
+| `NETSCOPE_IKUAI_FALLBACK_URL` | 空 | 备用面板地址（如内网 `http://10.0.1.1:6301`），主地址被 WAF 拦截/不可达时自动轮换 |
 | `NETSCOPE_IKUAI_USERNAME` | 空 | iKuai 用户名 |
 | `NETSCOPE_IKUAI_PASSWORD` | 空 | iKuai 密码 |
+
+> 上下行带宽取自 iKuai `monitor_iface` 接口实时速率（`iface_stream` 的 WAN 口汇总，
+> 单位 B/s），是路由器自身的权威口径；连接级流量差分仅在其失效时作为兜底。
 
 ### 前端
 

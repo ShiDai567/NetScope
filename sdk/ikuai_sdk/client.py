@@ -64,6 +64,21 @@ class IKuaiClient:
                 payload=request_payload,
                 use_json=use_json,
             )
+            # 防暴力登录 WAF：首次请求返回 403 并下发挑战 cookie，
+            # 携带该 cookie 重试一次才是真正的登录请求
+            if upstream_status == 403 and cookies and "sess_key" not in cookies:
+                challenge = "; ".join(f"{k}={v}" for k, v in cookies.items())
+                (
+                    upstream_status,
+                    response_body,
+                    response_headers,
+                    cookies,
+                ) = self._post_login(
+                    login_url=login_url,
+                    payload=request_payload,
+                    use_json=use_json,
+                    extra_cookie_header=challenge,
+                )
             try:
                 upstream_response = json.loads(response_body) if response_body else {}
             except json.JSONDecodeError:
@@ -188,6 +203,48 @@ class IKuaiClient:
             cookie_header=cookie_header,
         )
 
+    def get_interface_stream(
+        self,
+        *,
+        router_url: str,
+        cookie_header: str,
+    ) -> IKuaiCallResult:
+        """接口实时速率（iface_stream，upload/download 单位 B/s）。
+
+        返回同时包含 snapshoot_wan（权威 WAN 口列表），
+        两者求交集即可得到真实公网上下行带宽。
+        """
+        payload = {
+            "func_name": "monitor_iface",
+            "action": "show",
+            "param": {"TYPE": "all"},
+        }
+        return self.call(
+            router_url=router_url,
+            path="/Action/call",
+            payload=payload,
+            cookie_header=cookie_header,
+        )
+
+    def get_system_monitor(
+        self,
+        *,
+        router_url: str,
+        cookie_header: str,
+    ) -> IKuaiCallResult:
+        """系统负载历史采样（cpu / memory_use 百分比等），最后一条为最新样本。"""
+        payload = {
+            "func_name": "monitor_system",
+            "action": "show",
+            "param": {},
+        }
+        return self.call(
+            router_url=router_url,
+            path="/Action/call",
+            payload=payload,
+            cookie_header=cookie_header,
+        )
+
     def login_and_get_terminal_list(
         self,
         *,
@@ -244,12 +301,21 @@ class IKuaiClient:
         )
         return login_result, connection_result
 
-    def _post_login(self, *, login_url: str, payload: dict[str, str], use_json: bool):
+    def _post_login(
+        self,
+        *,
+        login_url: str,
+        payload: dict[str, str],
+        use_json: bool,
+        extra_cookie_header: str | None = None,
+    ):
         headers = {
             "Accept": "application/json",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
             "Referer": f"{login_url.rsplit('/', 1)[0]}/",
         }
+        if extra_cookie_header:
+            headers["Cookie"] = extra_cookie_header
         if use_json:
             body = json.dumps(payload).encode("utf-8")
             headers["Content-Type"] = "application/json; charset=utf-8"

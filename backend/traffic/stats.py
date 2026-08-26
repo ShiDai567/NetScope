@@ -65,6 +65,13 @@ class StatsTracker:
             self.directions = {DIRECTION_OUTBOUND: 0, DIRECTION_INBOUND: 0, DIRECTION_INTERNAL: 0}
             self.protocols = {"tcp": 0, "udp": 0, "icmp": 0}
             self.apps: dict[str, int] = {}
+            # 外部权威带宽样本（iKuai 接口实时速率）：(ts, up_bps, down_bps)
+            self._ext_bw: Optional[tuple[float, float, float]] = None
+            # 系统负载（iKuai monitor_system 最新采样）
+            self.system: dict[str, Optional[float]] = {
+                "cpu_percent": None,
+                "memory_percent": None,
+            }
             self._seen_ids: set[str] = set()
             self._terminal_ids: set[str] = set()
             self._counters: dict[str, tuple[int, int, float]] = {}
@@ -83,6 +90,32 @@ class StatsTracker:
             ]
 
     # ------------------------------------------------------------------
+    def ingest_bandwidth(self, up_bps: float, down_bps: float) -> None:
+        """外部权威带宽数据（bits/s，来自 iKuai 接口实时速率）。
+
+        样本新鲜期内接管带宽序列与瞬时值，连接差分自动退位，
+        避免两套口径混算导致数值失真。
+        """
+        now = time.time()
+        with self._lock:
+            self._ext_bw = (now, float(up_bps), float(down_bps))
+            bucket = self._bw_buckets[-1]
+            if now - bucket[0] >= 1.0:
+                bucket = [now, 0.0, 0.0]
+                self._bw_buckets.append(bucket)
+            bucket[1] = float(up_bps)
+            bucket[2] = float(down_bps)
+
+    def set_system(self, cpu_percent: float, memory_percent: float) -> None:
+        with self._lock:
+            self.system = {
+                "cpu_percent": round(float(cpu_percent), 1),
+                "memory_percent": round(float(memory_percent), 1),
+            }
+
+    def _ext_bw_fresh(self, now: float) -> bool:
+        return self._ext_bw is not None and now - self._ext_bw[0] <= 15.0
+
     def ingest(self, packet: dict[str, Any]) -> None:
         now = time.time()
         pid = packet.get("id") or ""
@@ -117,6 +150,7 @@ class StatsTracker:
             # 带宽：按连接累计值的差分计入当前秒 bucket。
             # 首次见到的连接只建立基线——历史累计流量（可能达 GB 级）
             # 不能算作"当前瞬间带宽"，否则会出现虚假 Gbps 尖峰。
+            # 权威接口样本新鲜时跳过差分累加，仅维护基线防止口径切换突刺。
             up = int(packet.get("total_up") or 0)
             down = int(packet.get("total_down") or 0)
             prev = self._counters.get(pid)
@@ -130,12 +164,13 @@ class StatsTracker:
                 self._counters = {
                     k: v for k, v in self._counters.items() if v[2] >= cutoff
                 }
-            bucket = self._bw_buckets[-1]
-            if now - bucket[0] >= 1.0:
-                bucket = [now, 0.0, 0.0]
-                self._bw_buckets.append(bucket)
-            bucket[1] += d_up
-            bucket[2] += d_down
+            if (d_up or d_down) and not self._ext_bw_fresh(now):
+                bucket = self._bw_buckets[-1]
+                if now - bucket[0] >= 1.0:
+                    bucket = [now, 0.0, 0.0]
+                    self._bw_buckets.append(bucket)
+                bucket[1] += d_up
+                bucket[2] += d_down
 
             # 延迟样本
             latency = packet.get("latency_ms")
@@ -183,6 +218,11 @@ class StatsTracker:
                             [x, y, round(sum(cell) / len(cell), 1)]
                         )
             top_apps = sorted(self.apps.items(), key=lambda kv: -kv[1])[:8]
+            if self._ext_bw is not None and self._ext_bw_fresh(now):
+                # iKuai 接口实时速率是权威口径
+                _, up_now, down_now = self._ext_bw
+            else:
+                up_now, down_now = series[-1][1], series[-1][2]
             return {
                 "total": self.total,
                 "active": active,
@@ -193,10 +233,11 @@ class StatsTracker:
                 "protocols": dict(self.protocols),
                 "apps": [{"name": n, "count": c} for n, c in top_apps],
                 "bandwidth": {
-                    "up_bps": round(series[-1][1], 1),
-                    "down_bps": round(series[-1][2], 1),
+                    "up_bps": round(up_now, 1),
+                    "down_bps": round(down_now, 1),
                     "series": series,
                 },
+                "system": dict(self.system),
                 "loss_rate": loss_rate,
                 "avg_latency_ms": avg_latency,
                 "latency_heatmap": {

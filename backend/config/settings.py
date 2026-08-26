@@ -98,3 +98,5 @@ GATEWAY_LNG = float(os.environ.get("NETSCOPE_GATEWAY_LNG", "116.4074"))
 IKUAI_URL = os.environ.get("NETSCOPE_IKUAI_URL", "").strip().rstrip("/")
 IKUAI_USERNAME = os.environ.get("NETSCOPE_IKUAI_USERNAME", "").strip()
 IKUAI_PASSWORD = os.environ.get("NETSCOPE_IKUAI_PASSWORD", "")
+# 备用地址：主地址被 WAF 拦截 / 不可达时自动轮换（如内网 http://10.0.1.1:6301）
+IKUAI_FALLBACK_URL = os.environ.get("NETSCOPE_IKUAI_FALLBACK_URL", "").strip().rstrip("/")

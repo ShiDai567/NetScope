@@ -48,6 +48,10 @@ interface RawStatsResponse {
   };
   loss_rate: number;
   avg_latency_ms: number;
+  system?: {
+    cpu_percent?: number | null;
+    memory_percent?: number | null;
+  };
   latency_heatmap?: {
     x: number[];
     y: string[];
@@ -111,6 +115,14 @@ function adaptStats(raw: RawStatsResponse): StatsSnapshot {
     },
     lossRate: raw.loss_rate ?? 0,
     avgLatencyMs: raw.avg_latency_ms ?? 0,
+    system: {
+      cpuPercent:
+        typeof raw.system?.cpu_percent === "number" ? raw.system.cpu_percent : null,
+      memoryPercent:
+        typeof raw.system?.memory_percent === "number"
+          ? raw.system.memory_percent
+          : null,
+    },
     mode: raw.mode === "ikuai" ? "ikuai" : "simulation",
     uptime: raw.uptime ?? 0,
   };

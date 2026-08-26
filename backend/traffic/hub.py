@@ -267,6 +267,9 @@ class TrafficHub:
             device_snapshot=self._set_devices,
             gateway=self.gateway,
             on_error=self._on_ikuai_error,
+            bandwidth_sample=self._set_bandwidth_sample,
+            system_sample=self._set_system_sample,
+            fallback_url=settings.IKUAI_FALLBACK_URL,
         )
         login_info = poller.test_connection()  # 失败会抛 IKuaiError
         with self._lock:
@@ -281,12 +284,22 @@ class TrafficHub:
             self._public_nodes = {}
             self._ikuai_info = {
                 "router_url": router_url,
+                "fallback_url": settings.IKUAI_FALLBACK_URL or None,
+                "using_url": poller.current_url,
                 "username": username,
                 "connected_at": round(time.time(), 1),
                 "login": login_info,
             }
         poller.start()
         return {"mode": self._mode, "ikuai": self._ikuai_info}
+
+    def _set_bandwidth_sample(self, up_bytes: float, down_bytes: float) -> None:
+        """iKuai 接口实时速率（B/s）→ 权威带宽数据。"""
+        self._stats.ingest_bandwidth(up_bytes * 8.0, down_bytes * 8.0)
+
+    def _set_system_sample(self, cpu_percent: float, memory_percent: float) -> None:
+        """iKuai 系统负载 → 统计快照。"""
+        self._stats.set_system(cpu_percent, memory_percent)
 
     def disconnect_ikuai(self) -> dict[str, Any]:
         with self._lock:
@@ -322,6 +335,12 @@ class TrafficHub:
                         getattr(self._poller, "last_error", None)
                         if self._poller is not None
                         else self._ikuai_error
+                    ),
+                    # 容灾轮换后显示实际使用的地址
+                    "using_url": (
+                        getattr(self._poller, "current_url", None)
+                        if self._poller is not None
+                        else self._ikuai_info.get("using_url")
                     ),
                     "last_poll_at": getattr(self._poller, "last_poll_at", None),
                 },
