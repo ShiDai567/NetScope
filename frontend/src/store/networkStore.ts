@@ -34,6 +34,8 @@ interface NetworkState {
   devices: DeviceInfo[];
   nodes: PublicNode[];
   gateway: GatewayInfo;
+  /** 地理纪元：后端核心位置变更时 +1，前端据此清空旧坐标流缓存 */
+  geoEpoch: number;
   ikuaiError: string | null;
   ikuaiRouter: string | null;
   /** 最近连接快照：同 id 后到覆盖先到；按 seq 升序追加 */
@@ -55,6 +57,8 @@ interface NetworkState {
   setDevices: (d: DeviceInfo[]) => void;
   setNodes: (n: PublicNode[]) => void;
   setGateway: (lat: number, lng: number) => void;
+  /** 核心位置变更（geo_epoch 变化）：清空旧伪坐标流，全部重新积累 */
+  handleGeoEpoch: (epoch: number, lat?: number, lng?: number) => void;
   setIkuaiInfo: (info: { routerUrl: string | null; error: string | null }) => void;
   setBooted: (v: boolean) => void;
   setScene: (s: Scene) => void;
@@ -80,6 +84,7 @@ export const useNetworkStore = create<NetworkState>((set) => ({
   devices: [],
   nodes: [],
   gateway: { lat: 39.9042, lng: 116.4074 },
+  geoEpoch: 0,
   ikuaiError: null,
   ikuaiRouter: null,
   flows: [],
@@ -154,6 +159,18 @@ export const useNetworkStore = create<NetworkState>((set) => ({
   setDevices: (devices) => set({ devices }),
   setNodes: (nodes) => set({ nodes }),
   setGateway: (lat, lng) => set({ gateway: { lat, lng } }),
+  handleGeoEpoch: (epoch, lat, lng) =>
+    set((state) => {
+      if (epoch <= state.geoEpoch) return state;
+      return {
+        geoEpoch: epoch,
+        flows: [],
+        events: [],
+        selectedId: null,
+        gateway:
+          lat != null && lng != null ? { lat, lng } : state.gateway,
+      };
+    }),
   setIkuaiInfo: ({ routerUrl, error }) =>
     set({ ikuaiRouter: routerUrl, ikuaiError: error }),
   setBooted: (booted) => set({ booted }),

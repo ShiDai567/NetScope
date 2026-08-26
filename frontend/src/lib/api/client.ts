@@ -173,6 +173,8 @@ function adaptNode(raw: RawNode): PublicNode | null {
 export interface ModeResponse {
   mode?: string;
   uptime?: number;
+  /** 地理纪元：后端核心位置变更时 +1 */
+  geo_epoch?: number;
   gateway?: { lat?: number; lng?: number };
   ikuai?: {
     router_url?: string;

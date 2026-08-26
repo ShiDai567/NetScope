@@ -12,3 +12,8 @@ __pycache__/
 .venv/
 node_modules/
 db.sqlite3
+
+# Geo 数据文件（体积大，不入库；部署时单独放置到 backend/data/）
+backend/data/*.mmdb
+backend/data/*.xdb
+backend/data/*.dat

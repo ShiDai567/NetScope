@@ -24,8 +24,9 @@ const AGG_REFRESH_MS = 500;
 const MAX_PARTICLES = 520;
 
 const VIEW_PRESETS: Record<Scene, ViewTransform> = {
-  // 视点取本初子午线附近，保证世界地图水平居中（配合东西环绕无死边）
-  global: { cx: projectX(12), cy: projectY(24), scale: 1 },
+  // 大西洋视角：注视点取大西洋中部（lng=-30°），美洲完整居右、欧非完整居左，
+  // 以大西洋为分界不切割任何大陆；切换 CHINA / LAN 时相机向东短扫
+  global: { cx: projectX(160), cy: projectY(24), scale: 1 },
   china: { cx: projectX(104.5), cy: projectY(36), scale: 4.6 },
   lan: { cx: -1, cy: -1, scale: 15 }, // cx/cy 运行时以网关坐标填充
 };
@@ -112,6 +113,7 @@ export class RenderEngine {
 
   private aggs = new Map<string, ActiveAgg>();
   private lastAggAt = 0;
+  private geoEpoch = 0;
   private effects: FlowEffect[] = [];
   private announcedNodes = new Map<string, number>();
   private stars: { x: number; y: number; r: number; ph: number }[] = [];
@@ -349,6 +351,13 @@ export class RenderEngine {
     const now = performance.now();
     const nowSec = Date.now() / 1000;
     const store = useNetworkStore.getState();
+
+    // 地理纪元变更：旧伪坐标聚合全部作废，立即清空
+    if (store.geoEpoch > this.geoEpoch) {
+      this.geoEpoch = store.geoEpoch;
+      this.aggs.clear();
+      this.mapperEpoch += 1;
+    }
 
     // 视图动画
     if (this.animator && !this.animator.done) {

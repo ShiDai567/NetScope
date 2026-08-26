@@ -100,7 +100,7 @@ export function useNetworkStream(): void {
       }
     })();
 
-    // ---- 模式 / 网关 / iKuai 状态
+    // ---- 模式 / 网关 / iKuai 状态 / 地理纪元
     const pollMode = async () => {
       while (!stopped) {
         const m = await api.mode();
@@ -111,6 +111,14 @@ export function useNetworkStream(): void {
             typeof m.gateway?.lng === "number"
           ) {
             store.setGateway(m.gateway.lat, m.gateway.lng);
+          }
+          // 核心位置变更（SERVER_LOCATION 改动 / 重定位）：清空旧伪坐标流
+          if (typeof m.geo_epoch === "number") {
+            store.handleGeoEpoch(
+              m.geo_epoch,
+              typeof m.gateway?.lat === "number" ? m.gateway.lat : undefined,
+              typeof m.gateway?.lng === "number" ? m.gateway.lng : undefined
+            );
           }
           store.setIkuaiInfo({
             routerUrl: m.ikuai?.router_url ?? null,
