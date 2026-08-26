@@ -1,9 +1,12 @@
 """TrafficHub：全局流量状态中枢。
 
-- 管理数据源（模拟引擎 / iKuai 轮询器）的生命周期
+- 管理唯一真实数据源（iKuai 轮询器）的生命周期
 - 统一事件出口：为每个数据包事件分配递增 seq，写入环形事件日志
 - 聚合统计、设备列表、节点列表
 - 线程安全
+
+本系统只消费真实网络数据：未配置 iKuai 或连接失败时，API 返回空状态
+（前端显示 WAITING FOR NETWORK DATA），后台持续重连，绝不伪造流量。
 """
 from __future__ import annotations
 
@@ -17,13 +20,13 @@ from django.conf import settings
 
 from .geo import is_private_ip, known_geo_label
 from .ikuai import IKuaiPoller
-from .simulation import GATEWAY_IP, SimulationEngine
 from .stats import StatsTracker
 
 EVENT_LOG_SIZE = 12000
 AUTO_CONNECT_RETRY_INTERVAL = 15.0
 PUBLIC_NODE_LIMIT = 500
 PUBLIC_NODE_TTL = 900.0
+GATEWAY_LAN_IP = "10.0.1.1"
 
 logger = logging.getLogger("netscope.hub")
 
@@ -34,8 +37,7 @@ class TrafficHub:
         self._lock = threading.RLock()
         self._started = False
         self._started_at = time.time()
-        self._mode = "simulation"
-        self._engine: Optional[SimulationEngine] = None
+        self._mode = "ikuai"
         self._poller: Optional[IKuaiPoller] = None
         self._events: deque[dict[str, Any]] = deque(maxlen=EVENT_LOG_SIZE)
         self._seq = 0
@@ -56,20 +58,21 @@ class TrafficHub:
             self._started = True
 
         cfg = (settings.IKUAI_URL, settings.IKUAI_USERNAME, settings.IKUAI_PASSWORD)
-        if all(cfg) and self._auto_connect_ikuai(*cfg):
+        if not all(cfg):
+            logger.warning(
+                "未配置 iKuai（NETSCOPE_IKUAI_URL / USERNAME / PASSWORD），"
+                "API 将返回空状态直到配置并连接成功"
+            )
             return
-
-        with self._lock:
-            # 未配置 iKuai 或自动连接失败：先以模拟模式运行（重试线程负责切换）
-            if self._mode != "ikuai":
-                self._start_simulation_locked()
+        if not self._auto_connect_ikuai(*cfg):
+            logger.warning("iKuai 初始连接失败，后台每 %.0fs 自动重试", AUTO_CONNECT_RETRY_INTERVAL)
 
     def _auto_connect_ikuai(self, url: str, username: str, password: str) -> bool:
         try:
             self.connect_ikuai(url, username, password)
         except Exception as exc:
             # 登录失败 / 网络不通都不能阻塞 API 服务
-            logger.warning("iKuai 自动连接失败: %s —— 先以模拟模式运行，稍后自动重试", exc)
+            logger.warning("iKuai 自动连接失败: %s —— 保持空状态并持续重试", exc)
             self._spawn_retry_thread(str(exc), url, username, password)
             return False
         logger.info("iKuai 自动连接成功: %s (%s)", url, username)
@@ -105,17 +108,6 @@ class TrafficHub:
             logger.info("iKuai 自动重连成功: %s", url)
             return
 
-    def _start_simulation_locked(self) -> None:
-        if self._engine and self._engine.is_alive():
-            return
-        self._engine = SimulationEngine(
-            emit=self._emit,
-            gateway=self.gateway,
-            device_snapshot=self._set_devices,
-        )
-        self._engine.start()
-        self._mode = "simulation"
-
     # ------------------------------------------------------------------
     def _emit(self, packet: dict[str, Any]) -> None:
         with self._lock:
@@ -125,7 +117,7 @@ class TrafficHub:
             self._events.append(event)
             now = time.time()
             pid = event["id"]
-            if event.get("status") == "关闭连接" or event.get("flag") in {"failed", "lost"}:
+            if event.get("status") == "关闭连接":
                 # 终态：从活跃索引移除，记录终结时间用于统计
                 self._active_index.pop(pid, None)
                 self._terminal_index.setdefault(pid, now)
@@ -225,7 +217,7 @@ class TrafficHub:
         with self._lock:
             nodes = [
                 {
-                    "ip": GATEWAY_IP,
+                    "ip": GATEWAY_LAN_IP,
                     "name": "iKuai 主路由",
                     "domain": None,
                     "lat": self.gateway[0],
@@ -233,25 +225,22 @@ class TrafficHub:
                     "type": "gateway",
                 }
             ]
-            if self._engine is not None and self._mode == "simulation":
-                nodes += self._engine.public_nodes()
-            elif self._poller is not None:
-                # 真实模式：返回事件流中实际出现过的公网节点
-                discovered = sorted(
-                    self._public_nodes.values(),
-                    key=lambda n: -n.get("last_seen", 0),
-                )
-                nodes += [
-                    {
-                        "ip": n["ip"],
-                        "name": n.get("name") or n["ip"],
-                        "domain": n.get("domain"),
-                        "lat": n["lat"],
-                        "lng": n["lng"],
-                        "type": "peer",
-                    }
-                    for n in discovered[:400]
-                ]
+            # 真实模式：返回事件流中实际出现过的公网节点
+            discovered = sorted(
+                self._public_nodes.values(),
+                key=lambda n: -n.get("last_seen", 0),
+            )
+            nodes += [
+                {
+                    "ip": n["ip"],
+                    "name": n.get("name") or n["ip"],
+                    "domain": n.get("domain"),
+                    "lat": n["lat"],
+                    "lng": n["lng"],
+                    "type": "peer",
+                }
+                for n in discovered[:400]
+            ]
             return nodes
 
     # ------------------------------------------------------------------
@@ -275,9 +264,6 @@ class TrafficHub:
         with self._lock:
             if self._poller is not None:
                 self._poller.stop()
-            if self._engine is not None:
-                self._engine.stop()
-                self._engine = None
             self._poller = poller
             self._mode = "ikuai"
             self._ikuai_error = None
@@ -300,17 +286,6 @@ class TrafficHub:
     def _set_system_sample(self, cpu_percent: float, memory_percent: float) -> None:
         """iKuai 系统负载 → 统计快照。"""
         self._stats.set_system(cpu_percent, memory_percent)
-
-    def disconnect_ikuai(self) -> dict[str, Any]:
-        with self._lock:
-            if self._poller is not None:
-                self._poller.stop()
-                self._poller = None
-            self._ikuai_info = {}
-            self._ikuai_error = None
-            self._public_nodes = {}
-            self._start_simulation_locked()
-        return {"mode": self._mode}
 
     def _on_ikuai_error(self, message: str) -> None:
         with self._lock:

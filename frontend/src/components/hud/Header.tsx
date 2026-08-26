@@ -11,7 +11,6 @@ export function Header() {
   const [now, setNow] = useState<Date | null>(null);
   const connState = useNetworkStore((s) => s.connState);
   const apiError = useNetworkStore((s) => s.apiError);
-  const mode = useNetworkStore((s) => s.mode);
 
   useEffect(() => {
     setNow(new Date());
@@ -39,9 +38,7 @@ export function Header() {
         <StatusIndicator color={cyber.mint} label="系统在线" />
         <StatusIndicator
           color={apiError ? cyber.red : cyber.textDim}
-          label={
-            apiError ? "API 连接错误" : `数据源 · ${mode === "ikuai" ? "iKuai" : "模拟"}`
-          }
+          label={apiError ? "API 连接错误" : "数据源 · iKuai"}
           pulse={!!apiError}
           size="sm"
         />
@@ -80,7 +77,7 @@ export function Header() {
           label={`数据链路 · ${streamLabel}`}
         />
         <span className="font-mono text-[10px] tracking-[0.22em] text-slate-600">
-          {mode === "ikuai" ? "iKuai 路由器直连" : "模拟数据流"}
+          iKuai 路由器直连 · 真实数据
         </span>
       </div>
 

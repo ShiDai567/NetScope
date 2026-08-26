@@ -13,5 +13,4 @@ urlpatterns = [
     path("stats", views.stats, name="stats"),
     path("mode", views.mode, name="mode"),
     path("ikuai/connect", views.ikuai_connect, name="ikuai-connect"),
-    path("ikuai/disconnect", views.ikuai_disconnect, name="ikuai-disconnect"),
 ]

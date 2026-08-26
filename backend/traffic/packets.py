@@ -99,10 +99,9 @@ def build_packet(
     domain: Optional[str] = None,
     original_dst: Optional[str] = None,
     interface: Optional[str] = None,
-    flag: Optional[str] = None,
     lan_positions: Optional[dict[str, tuple[float, float]]] = None,
 ) -> dict[str, Any]:
-    """把一条连接记录（模拟或 iKuai 原始行）转换为 AGENTS.md 标准 JSON。"""
+    """把一条 iKuai 连接记录转换为 AGENTS.md 标准 JSON。"""
     proto = (protocol or "tcp").lower()
     direction = judge_direction(dst_addr, forward_addr)
 
@@ -150,6 +149,4 @@ def build_packet(
         packet["nat_info"]["original_dst"] = original_dst
     if interface and interface != "--":
         packet["interface"] = interface
-    if flag in {"failed", "lost", "high_latency"}:
-        packet["flag"] = flag
     return packet

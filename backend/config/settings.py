@@ -75,13 +75,8 @@ TEMPLATES = []
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
 
-# 不使用数据库（运行态数据全部在内存中），保留 sqlite 仅为满足 Django 默认要求
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
+# 无数据库：运行态数据全部在内存（事件环形日志 / 统计聚合 / GeoIP 缓存）
+DATABASES = {}
 
 LANGUAGE_CODE = "zh-hans"
 TIME_ZONE = "Asia/Shanghai"

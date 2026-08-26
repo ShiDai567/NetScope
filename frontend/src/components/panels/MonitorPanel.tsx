@@ -135,18 +135,6 @@ export function MonitorPanel() {
           </dl>
         </div>
       </HudPanel>
-
-      {/* 异常检测 —— 明确标记为模拟占位 */}
-      <HudPanel title="异常检测" className="shrink-0 opacity-70">
-        <div className="flex items-center justify-between px-3 py-2">
-          <p className="font-mono text-[9px] tracking-[0.25em] text-slate-500">
-            等待后端引擎接入
-          </p>
-          <span className="border border-amber-400/40 px-1.5 py-0.5 font-mono text-[8px] tracking-[0.2em] text-amber-400">
-            模拟
-          </span>
-        </div>
-      </HudPanel>
     </div>
   );
 }

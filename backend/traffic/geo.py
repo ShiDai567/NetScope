@@ -1,21 +1,25 @@
 """IP 地理位置与内外网判断工具。
 
 - 内网 IP 判定遵循 RFC1918 / 链路本地 / 回环等常见私有段
-- 公网 IP 定位优先查内置常用服务地址表，再查内存缓存（ip-api.com 查询结果），
-  未命中的地址按确定性哈希落到中国范围内兜底，保证同一 IP 每次落点一致。
-- ip-api.com 查询在后台线程串行执行，避免阻塞实时流量处理，并遵守免费版限速。
+- 公网 IP 定位优先查内置常用服务地址表，再查内存缓存（在线查询结果），
+  未命中的地址按确定性哈希兜底（仅作渲染占位，同一 IP 落点一致）。
+- 在线查询走多服务商容灾链：ipwho.is → api.ip.sb，后台线程串行执行，
+  避免阻塞实时流量处理，并遵守各服务商免费额度限速。
 """
 from __future__ import annotations
 
 import hashlib
 import ipaddress
 import json
+import logging
 import threading
 import time
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Tuple
+
+logger = logging.getLogger("netscope.geo")
 
 Coord = Tuple[float, float]  # (lat, lng)
 
@@ -124,54 +128,88 @@ _FALLBACK_REGIONS: list[Coord] = [
 ]
 
 # ---------------------------------------------------------------------------
-# ip-api.com 异步查询与缓存
+# 在线 GeoIP 查询与缓存（多服务商容灾）
 # ---------------------------------------------------------------------------
 # 缓存结构: ip -> (lat, lng, label, timestamp)
 _ip_geo_cache: dict[str, Tuple[float, float, str, float]] = {}
 _cache_lock = threading.Lock()
 
-# 单线程 executor，串行查询以遵守 ip-api 免费版限速 (~45 req/s)
-# 每次查询后 sleep 0.05s，实际限速 ~20 req/s，留有余量
+# 单线程 executor，串行查询以遵守免费额度：
+# ipwho.is ~10k 次/月、api.ip.sb 宽松；每次查询后间隔 1.1s 兜底限速
 _lookup_executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="ipgeo")
+_LOOKUP_MIN_INTERVAL = 1.1
+
+_GEO_TIMEOUT = 5.0
+_GEO_UA = "NetScope/1.0"
 
 
-def _fetch_ip_api(ip: str) -> Tuple[float, float, str] | None:
-    """同步调用 ip-api.com，返回 (lat, lng, label) 或 None。"""
-    # 免费版限制：非商业用途，每秒 45 次
-    # fields=61439 对应返回字段掩码，包含 lat/lon/country/region/city 等
-    url = f"http://ip-api.com/json/{ip}?fields=61439&lang=zh-CN"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "NetScope/1.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-    except Exception:
+def _http_get_json(url: str, attempts: int = 2) -> Optional[dict]:
+    """GET JSON，带瞬时故障重试（出口网络偶发 TLS 握手中断）。"""
+    last_exc: Exception | None = None
+    for i in range(attempts):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": _GEO_UA})
+            with urllib.request.urlopen(req, timeout=_GEO_TIMEOUT) as resp:
+                return json.loads(resp.read().decode("utf-8", errors="replace"))
+        except Exception as exc:
+            last_exc = exc
+            if i + 1 < attempts:
+                time.sleep(0.8)
+    logger.debug("geo lookup failed: %s (%s)", url, last_exc)
+    return None
+
+
+def _label_from_parts(*parts: Optional[str]) -> str:
+    return " ".join(p for p in parts if p)
+
+
+def _fetch_ipwhois(ip: str) -> Tuple[float, float, str] | None:
+    """ipwho.is：免费无 Key，返回 latitude/longitude。"""
+    data = _http_get_json(f"https://ipwho.is/{ip}")
+    if not data or not data.get("success") or data.get("latitude") is None:
         return None
-
-    if data.get("status") != "success":
+    lat, lon = data.get("latitude"), data.get("longitude")
+    label = _label_from_parts(
+        data.get("country"), data.get("region"), data.get("city")
+    )
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
         return None
+    return float(lat), float(lon), label or ip
 
-    lat = data.get("lat")
-    lon = data.get("lon")
-    if lat is None or lon is None:
+
+def _fetch_ipsb(ip: str) -> Tuple[float, float, str] | None:
+    """api.ip.sb：备用源，返回 latitude/longitude。"""
+    data = _http_get_json(f"https://api.ip.sb/geoip/{ip}")
+    if not data or data.get("latitude") is None:
         return None
+    lat, lon = data.get("latitude"), data.get("longitude")
+    label = _label_from_parts(
+        data.get("country"), data.get("region"), data.get("city")
+    )
+    if not isinstance(lat, (int, float)) or not isinstance(lon, (int, float)):
+        return None
+    return float(lat), float(lon), label or ip
 
-    city = data.get("city", "")
-    region = data.get("regionName", "")
-    country = data.get("country", "")
-    label = f"{country} {region} {city}".strip()
-    if not label:
-        label = ip
-    return float(lat), float(lon), label
+
+_GEO_PROVIDERS = (_fetch_ipwhois, _fetch_ipsb)
+
+
+def _fetch_geo(ip: str) -> Tuple[float, float, str] | None:
+    for provider in _GEO_PROVIDERS:
+        result = provider(ip)
+        if result is not None:
+            return result
+    return None
 
 
 def _fetch_and_cache(ip: str) -> None:
-    """后台任务：查询 ip-api 并写入缓存。"""
-    result = _fetch_ip_api(ip)
+    """后台任务：多服务商查询并写入缓存。"""
+    result = _fetch_geo(ip)
     if result:
         with _cache_lock:
             _ip_geo_cache[ip] = (*result, time.time())
-    # 限速：每次查询间隔至少 50ms
-    time.sleep(0.05)
+    # 限速：每次查询间隔至少 1.1s
+    time.sleep(_LOOKUP_MIN_INTERVAL)
 
 
 def _schedule_lookup(ip: str) -> None:
@@ -204,9 +242,9 @@ def locate_public_ip(ip: str) -> Tuple[float, float, str]:
 
     查找顺序：
     1. 内置静态表 KNOWN_GEO
-    2. 内存缓存（ip-api.com 查询结果）
+    2. 内存缓存（ipwho.is / api.ip.sb 查询结果）
     3. 触发后台异步查询（立即返回兜底坐标，后续命中缓存返回真实坐标）
-    4. 确定性哈希兜底（中国范围内）
+    4. 确定性哈希兜底（中国范围内，仅作渲染占位）
     """
     ip = str(ip).strip()
 

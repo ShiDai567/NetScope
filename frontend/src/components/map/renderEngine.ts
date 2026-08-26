@@ -559,7 +559,7 @@ export class RenderEngine {
     }
 
     // ---- 网关核心
-    this.drawCore(ctx, mapper, now, store.mode);
+    this.drawCore(ctx, mapper, now);
 
     // ---- 扫描线（克制）
     if (!this.reducedMotion) {
@@ -901,10 +901,10 @@ export class RenderEngine {
   private drawCore(
     ctx: CanvasRenderingContext2D,
     mapper: ScreenMapper,
-    now: number,
-    mode: string
+    now: number
   ) {
-    const g = useNetworkStore.getState().gateway;
+    const storeState = useNetworkStore.getState();
+    const g = storeState.gateway;
     const raw = mapper.toScreen(g.lng, g.lat);
     const p = { x: this.nearCenterX(raw.x), y: raw.y };
     const w = this.width;
@@ -912,8 +912,9 @@ export class RenderEngine {
     if (p.x < -60 || p.x > w + 60 || p.y < -60 || p.y > h + 60) return;
 
     const zoomShrink = clamp01((this.view.scale - 4) / 8); // LAN 时核心缩小为路由器节点
-    const R = 15 - zoomShrink * 8;
-    const online = mode === "ikuai" || true; // 数据链路连通即在线
+    const R = 9.5 - zoomShrink * 4.5;
+    // 真实数据源：iKuai 连接出错时核心显示异常态（⚠ 异常 / 琥珀色）
+    const online = !storeState.ikuaiError;
 
     // 底部辉光
     const glow = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, R * 4.5);
@@ -944,14 +945,14 @@ export class RenderEngine {
       ctx.translate(p.x, p.y);
       ctx.rotate(rot * 0.9);
       ctx.beginPath();
-      ctx.arc(0, 0, R + 5, 0, Math.PI * 0.66);
+      ctx.arc(0, 0, R + R * 0.35, 0, Math.PI * 0.66);
       ctx.strokeStyle = cyber.cyan;
       ctx.globalAlpha = 0.85;
-      ctx.lineWidth = 1.6;
+      ctx.lineWidth = 1.4;
       ctx.stroke();
       ctx.rotate(-rot * 2.1);
       ctx.beginPath();
-      ctx.arc(0, 0, R + 9, Math.PI, Math.PI * 1.52);
+      ctx.arc(0, 0, R + R * 0.6, Math.PI, Math.PI * 1.52);
       ctx.strokeStyle = cyber.mint;
       ctx.globalAlpha = 0.5;
       ctx.lineWidth = 1;

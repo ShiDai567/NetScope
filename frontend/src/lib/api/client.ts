@@ -123,7 +123,7 @@ function adaptStats(raw: RawStatsResponse): StatsSnapshot {
           ? raw.system.memory_percent
           : null,
     },
-    mode: raw.mode === "ikuai" ? "ikuai" : "simulation",
+    mode: "ikuai",
     uptime: raw.uptime ?? 0,
   };
 }

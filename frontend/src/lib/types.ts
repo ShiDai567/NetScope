@@ -95,12 +95,13 @@ export interface StatsSnapshot {
   };
   lossRate: number;
   avgLatencyMs: number;
-  /** 路由器系统负载（iKuai monitor_system），模拟模式下为 null */
+  /** 路由器系统负载（iKuai monitor_system），未采样到时为 null */
   system: {
     cpuPercent: number | null;
     memoryPercent: number | null;
   };
-  mode: "simulation" | "ikuai";
+  /** 数据源固定为 iKuai 真实数据（系统已移除模拟模式） */
+  mode: "ikuai";
   uptime: number;
 }
 

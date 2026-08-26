@@ -78,7 +78,7 @@ def mode(request):
 @csrf_exempt
 @require_POST
 def ikuai_connect(request):
-    """连接真实 iKuai 路由器并切换到真实数据源。"""
+    """连接 iKuai 路由器（运行时切换路由器用，正常情况启动已自动连接）。"""
     hub.ensure_started()
     try:
         body = json.loads(request.body.decode("utf-8") or "{}")
@@ -92,16 +92,7 @@ def ikuai_connect(request):
         return _bad_request("routerUrl / username / password 均为必填")
 
     try:
-        from ikuai_sdk.exceptions import IKuaiError
-
         result = hub.connect_ikuai(router_url, username, password)
         return JsonResponse({"ok": True, **result})
     except Exception as exc:
         return JsonResponse({"ok": False, "error": str(exc)}, status=502)
-
-
-@csrf_exempt
-@require_POST
-def ikuai_disconnect(request):
-    hub.ensure_started()
-    return JsonResponse({"ok": True, **hub.disconnect_ikuai()})

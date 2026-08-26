@@ -113,7 +113,7 @@ export function useNetworkStream(): void {
             store.setGateway(m.gateway.lat, m.gateway.lng);
           }
           store.setIkuaiInfo({
-            routerUrl: m.mode === "ikuai" ? (m.ikuai?.router_url ?? null) : null,
+            routerUrl: m.ikuai?.router_url ?? null,
             error: m.ikuai?.error ?? null,
           });
         }

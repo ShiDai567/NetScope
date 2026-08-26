@@ -7,7 +7,7 @@
 ![NetScope 全球网络智能中心](doc/img/cover.png)
 
 ```text
-iKuai Router / 模拟引擎
+iKuai Router
         │
         ▼
    Django Backend  ──▶  REST JSON API
@@ -24,7 +24,7 @@ GLOBAL / CHINA / LAN 三场景实时大屏
 - **三场景地图**：`GLOBAL` 世界地图、`CHINA` 中国地图、`LAN` 内网设备拓扑，Canvas 自研渲染引擎平滑切换
 - **方向语义**：`outbound`（青色）/ `inbound`(紫色) / `internal`（绿色），严格信任后端判定结果
 - **服务器核心节点**：发光旋转环 + 脉冲 + 雷达扫描的 CYBER CORE 视觉
-- **真实数据驱动**：接入 iKuai 路由器后展示真实终端、连接明细与 NAT 端口映射；未接入时由内置模拟引擎生成符合规范的流量
+- **真实数据驱动**：只消费 iKuai 路由器的真实终端、连接明细与 NAT 端口映射；未连接时空状态展示并持续自动重连，绝不伪造流量
 - **实时统计聚合**：连接计数、带宽序列、丢包率、平均延迟、区域延迟热力图
 - **排行榜**：国家 / IP / 端口 / 应用全部由真实数据动态生成，不预设固定值
 - **NAT Pipeline 可视化**：公网来源 → NAT → 内网目标的完整链路展示
@@ -37,7 +37,7 @@ GLOBAL / CHINA / LAN 三场景实时大屏
 | 前端 | Next.js 15 · React 19 · TypeScript（strict）· Tailwind CSS 4 · Zustand |
 | 地图渲染 | 自研 Canvas 渲染引擎（无重型地图依赖）· GeoJSON（`public/maps/`） |
 | 后端 | Python · Django 5.2（轻量 JSON API，运行态数据全内存） |
-| 数据源 | 内置模拟引擎 / `sdk/ikuai_sdk`（iKuai 路由器 SDK） |
+| 数据源 | `sdk/ikuai_sdk`（iKuai 路由器 SDK），仅真实数据 |
 
 ## 项目结构
 
@@ -54,7 +54,6 @@ NetScope/
 │   ├── config/             # Django 配置（最小化，无 admin/session）
 │   └── traffic/
 │       ├── hub.py          # TrafficHub 全局状态中枢（线程安全、环形事件日志）
-│       ├── simulation.py   # 内置模拟引擎（TCP 状态机 / NAT / 三方向三协议）
 │       ├── ikuai.py        # iKuai 轮询器（终端列表 + 连接明细 diff 发射事件）
 │       ├── packets.py      # 标准化数据包构建
 │       ├── stats.py        # 实时统计聚合器
@@ -118,8 +117,8 @@ NETSCOPE_IKUAI_USERNAME=keshihua
 NETSCOPE_IKUAI_PASSWORD=your-password
 ```
 
-三项齐全时 Django 启动后自动登录路由器并切换到真实数据源；连接失败会先以模拟模式运行，
-并每 15 秒后台重试直到成功。登录遭遇 iKuai 防暴力 WAF 挑战时 SDK 会自动携带挑战 cookie
+三项齐全时 Django 启动后自动登录路由器；连接失败 API 返回空状态，后台每 15 秒重试直到成功。
+系统只消费真实网络数据，无任何内置模拟流量。登录遭遇 iKuai 防暴力 WAF 挑战时 SDK 会自动携带挑战 cookie
 重试；主地址连续失败 4 次自动切换备用地址。也可以不配置环境变量、运行时手动连接：
 
 ```bash
@@ -128,7 +127,7 @@ curl -X POST http://localhost:8000/api/ikuai/connect \
   -d '{"routerUrl": "http://192.168.1.1", "username": "admin", "password": "your-password"}'
 ```
 
-连接成功后系统自动从 `simulation` 切换为 `ikuai` 模式，开始拉取真实终端与连接数据（2s 轮询）。断开调用 `POST /api/ikuai/disconnect`。
+连接成功后开始拉取真实终端与连接数据（2s 轮询），带宽与 CPU 负载同样实时采集。
 
 ## 环境变量
 
@@ -166,7 +165,6 @@ curl -X POST http://localhost:8000/api/ikuai/connect \
 | GET | `/api/stats` | 实时统计快照（连接 / 方向 / 协议 / 应用 / 带宽 / 延迟热力图） |
 | GET | `/api/mode` | 当前数据源模式与运行状态 |
 | POST | `/api/ikuai/connect` | 连接 iKuai 路由器并切换真实数据源 |
-| POST | `/api/ikuai/disconnect` | 断开 iKuai 并回到模拟模式 |
 
 ## 数据链路设计
 

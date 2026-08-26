@@ -23,7 +23,7 @@ interface NetworkState {
   // ---- 数据链路
   connState: ConnectionState;
   apiError: boolean;
-  mode: "simulation" | "ikuai";
+  mode: "ikuai";
   serverTime: number;
   serverOffset: number; // server_time - client_time，用于对齐时间戳
   lastSeq: number;
@@ -70,7 +70,7 @@ interface NetworkState {
 export const useNetworkStore = create<NetworkState>((set) => ({
   connState: "connecting",
   apiError: false,
-  mode: "simulation",
+  mode: "ikuai",
   serverTime: 0,
   serverOffset: 0,
   lastSeq: 0,

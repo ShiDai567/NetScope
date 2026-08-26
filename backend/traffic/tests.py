@@ -13,7 +13,6 @@ from .packets import (
     judge_direction,
     normalize_status,
 )
-from .simulation import SimulationEngine
 
 GATEWAY = (39.9042, 116.4074)
 
@@ -139,65 +138,51 @@ class BuildPacketTest(SimpleTestCase):
         self.assertEqual(pkt["destination"]["ip"], "192.168.2.1")
 
 
-class SimulationEngineTest(SimpleTestCase):
-    def test_engine_generates_events_and_lifecycle(self):
-        events: list[dict] = []
-        devices: list[list[dict]] = []
-        engine = SimulationEngine(
-            emit=events.append,
-            gateway=GATEWAY,
-            device_snapshot=devices.append,
-        )
-        # 手动驱动 80 个 tick（40 秒模拟时间）
-        for _ in range(80):
-            engine.tick()
-            time.sleep(0.001)
-
-        self.assertTrue(events, "模拟引擎没有产生任何事件")
-        directions = {e["direction"] for e in events}
-        self.assertTrue(directions & {"outbound", "internal"})
-        ids = {e["id"] for e in events}
-        # 同一连接应有多条事件（状态演进）
-        multi = [i for i in ids if sum(1 for e in events if e["id"] == i) > 1]
-        self.assertTrue(multi, "连接没有状态演进事件")
-        for e in events:
-            self.assertIn("source", e)
-            self.assertIn("destination", e)
-            self.assertIn("nat_info", e)
-            self.assertNotIn("seq", e)  # seq 由 hub 分配，引擎不设置
-            src = e["source"]
-            self.assertTrue({"ip", "port", "lat", "lng"} <= set(src))
-        engine.stop()
-
-    def test_devices_snapshot(self):
-        engine = SimulationEngine(emit=lambda e: None, gateway=GATEWAY)
-        engine.tick()
-        devices = engine._devices
-        self.assertTrue(any(d.get("is_gateway") for d in devices))
-        self.assertTrue(all("mac" in d and "hostname" in d for d in devices))
+def _make_device(ip: str = "10.0.1.2", **extra) -> dict:
+    """构造与 IKuaiPoller._convert_devices 输出同构的设备快照（测试夹具）。"""
+    base = {
+        "ip": ip,
+        "mac": "60:be:b4:05:f3:67",
+        "hostname": "iStoreOS",
+        "vendor": "Unknown",
+        "interface": "lan1",
+        "is_gateway": False,
+        "lat": GATEWAY[0] + 0.5,
+        "lng": GATEWAY[1] + 0.6,
+        "connections": 3,
+        "up_rate": 1024.0,
+        "down_rate": 2048.0,
+    }
+    base.update(extra)
+    return base
 
 
 @override_settings(IKUAI_URL="", IKUAI_USERNAME="", IKUAI_PASSWORD="", IKUAI_FALLBACK_URL="")
 class ApiTest(SimpleTestCase):
-    """API 测试强制模拟模式：.env 配置真实 iKuai 时也不访问外部路由器。"""
+    """API 测试离线运行：.env 配置了真实 iKuai 也不访问外部路由器。
+
+    通过 hub 的注入接口直接写入真实结构的数据快照/事件，
+    只测 API 契约，不依赖路由器在线。
+    """
 
     def setUp(self):
         self.client = Client()
-        # 若此前已连上真实 iKuai（单例状态残留），切回模拟引擎保证测试确定性
         from .hub import hub
 
-        if hub._mode != "simulation" or hub._engine is None:
-            hub.disconnect_ikuai()
+        # 清理单例状态残留，保证测试确定性
+        if hub._poller is not None:
+            hub._poller.stop()
+            hub._poller = None
+        hub.ensure_started()
 
     def test_health(self):
         resp = self.client.get("/api/health")
         self.assertEqual(resp.status_code, 200)
-        self.assertEqual(resp.json()["status"], "ok")
+        self.assertEqual(resp.json()["status"] == "ok", True)
 
     def test_packets_incremental(self):
         from .hub import hub
 
-        hub.ensure_started()
         resp = self.client.get("/api/packets?since=0")
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -247,20 +232,40 @@ class ApiTest(SimpleTestCase):
     def test_devices_and_nodes(self):
         from .hub import hub
 
-        hub.ensure_started()
-        hub._engine.tick()
-        hub._engine._push_device_snapshot(time.time())
+        hub._set_devices([_make_device()])
         resp = self.client.get("/api/devices")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()["devices"])
+        devices = resp.json()["devices"]
+        self.assertTrue(devices)
+        self.assertTrue(any(d["ip"] == "10.0.1.2" for d in devices))
+
+        # nodes 始终包含网关，公网节点来自真实事件流
+        hub._emit(
+            build_packet(
+                packet_id="test_node_probe",
+                timestamp=time.time(),
+                device_ip="10.0.1.2",
+                protocol="tcp",
+                status="已连接",
+                dst_addr="8.8.4.4",
+                forward_addr="10.0.1.2",
+                src_port=2000,
+                dst_port=53,
+                app_name="DNS",
+                total_up=10,
+                total_down=20,
+                gateway=GATEWAY,
+            )
+        )
         resp = self.client.get("/api/nodes")
         self.assertEqual(resp.status_code, 200)
-        self.assertTrue(resp.json()["nodes"])
+        nodes = resp.json()["nodes"]
+        self.assertTrue(any(n["type"] == "gateway" for n in nodes))
+        self.assertTrue(any(n["ip"] == "8.8.4.4" for n in nodes))
 
     def test_history(self):
         from .hub import hub
 
-        hub.ensure_started()
         resp = self.client.get("/api/history?minutes=5")
         self.assertEqual(resp.status_code, 200)
         self.assertIn("events", resp.json())
