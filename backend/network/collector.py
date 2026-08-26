@@ -5,14 +5,19 @@ datasource → adapters → services → analytics → Redis/EventBus → WebSoc
 """
 
 import asyncio
+import os
+
+# Playwright evaluate 会在工作线程留下事件循环标记，使 Django ORM 的
+# async 安全检测误报（SynchronousOnlyOperation）。collector 内所有 ORM
+# 调用均在 to_thread 串行执行，无并发风险，显式放行。
+os.environ.setdefault("DJANGO_ALLOW_ASYNC_UNSAFE", "true")
 
 from analytics.aggregators import RollingCounters
 from analytics.bandwidth import BandwidthTracker
 from analytics.services import NetworkStatisticsService
 from core.event_bus import EventBus
-from core.geo.ip2region_provider import Ip2RegionProvider
+from core.geo.hiofd_provider import HiofdProvider
 from core.geo.manual_overrides import ManualOverrides
-from core.geo.maxmind_provider import MaxMindProvider
 from core.geo.service import GeoService
 from core.log import configure_logging, get_logger
 from core.redis_store import RedisStore, get_store
@@ -30,7 +35,7 @@ log = get_logger("network.collector")
 
 
 def build_geo_service(store, settings) -> GeoService:
-    """Geo 装配：手工覆盖 → ip2region（中国城市级）→ MaxMind（国际兜底）。"""
+    """Geo 装配：SQL GeoLookup 表为主源，hiofd API 兜底（查得即落库）。"""
     providers = []
     manual = ManualOverrides()
     manual.load_env(getattr(settings, "MANUAL_GEO_JSON", None))
@@ -39,14 +44,11 @@ def build_geo_service(store, settings) -> GeoService:
 
         manual.register(MOCK_GEO_OVERRIDES)
     providers.append(manual)
-
-    ip2region = Ip2RegionProvider(getattr(settings, "GEO_IP2REGION_XDB", None))
-    if ip2region.available:
-        providers.append(ip2region)
-
-    if getattr(settings, "GEO_PROVIDER", "maxmind") == "maxmind":
-        providers.append(MaxMindProvider(getattr(settings, "GEO_MAXMIND_CITY_DB", None)))
-    return GeoService(store, providers, cache_ttl=getattr(settings, "GEO_CACHE_TTL", 604800))
+    hiofd = None
+    if getattr(settings, "GEO_API_ENABLED", True):
+        hiofd = HiofdProvider(timeout=getattr(settings, "GEO_API_TIMEOUT", 6.0))
+        providers.append(hiofd)
+    return GeoService(store, providers), hiofd
 
 
 def build_source(settings):
@@ -75,7 +77,7 @@ class CollectorRuntime:
         self.bus = EventBus()
         self.counters = RollingCounters()
         self.bandwidth = BandwidthTracker()
-        self.geo = build_geo_service(self.store, settings)
+        self.geo, self._hiofd = build_geo_service(self.store, settings)
 
         gateway_ip = getattr(settings, "GATEWAY_IP", None) or host_of(
             getattr(settings, "IKUAI_ROUTER_URL", "")
@@ -271,6 +273,10 @@ class CollectorRuntime:
     async def _task_heartbeat(self) -> None:
         await asyncio.to_thread(self.store.heartbeat)
         self.bus.enqueue("heartbeat", {"t": now_ts()})
+        # Geo 浏览器空闲回收（hiofd provider 常驻内存控制）
+        geo_provider = self._hiofd
+        if geo_provider is not None:
+            await asyncio.to_thread(geo_provider.maybe_gc)
 
     async def _task_persist(self) -> None:
         await asyncio.to_thread(self._persist_snapshot)

@@ -157,10 +157,9 @@ SERVER_LOCATION = env("SERVER_LOCATION", default="").strip() or None
 _listen_raw = env("LISTEN_PORTS", default="22,80,443,445,8080,8443,5001")
 LISTEN_PORTS = frozenset(int(p) for p in (s.strip() for s in _listen_raw.split(",")) if p.isdigit())
 
-GEO_PROVIDER = env("GEO_PROVIDER", default="maxmind").strip().lower()
-GEO_MAXMIND_CITY_DB = env("GEO_MAXMIND_CITY_DB", default="").strip() or None
-GEO_IP2REGION_XDB = env("GEO_IP2REGION_XDB", default="").strip() or None
-GEO_CACHE_TTL = env.int("GEO_CACHE_TTL", default=604800)
+# ---- Geo（SQL GeoLookup 表为主源 + hiofd API 兜底）----
+GEO_API_ENABLED = env.bool("GEO_API_ENABLED", default=True)
+GEO_API_TIMEOUT = env.float("GEO_API_TIMEOUT", default=6.0)
 MANUAL_GEO_JSON = env("MANUAL_GEO_JSON", default=None)
 
 PACKET_BUFFER_MAX = env.int("PACKET_BUFFER_MAX", default=10000)

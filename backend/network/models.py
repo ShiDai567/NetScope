@@ -4,13 +4,16 @@ from django.db import models
 
 
 class GeoLookup(models.Model):
-    """Geo 二级持久缓存（doc §9.3.3）。"""
+    """Geo 持久库：ip → 归属地/坐标。hiofd API 查得后落库，此后零外部调用。"""
 
     ip_prefix = models.CharField(max_length=64, unique=True, db_index=True)
     country = models.CharField(max_length=64, blank=True, default="")
     code = models.CharField(max_length=8, blank=True, default="")
     region = models.CharField(max_length=64, blank=True, default="")
     city = models.CharField(max_length=64, blank=True, default="")
+    district = models.CharField(max_length=64, blank=True, default="")
+    street = models.CharField(max_length=128, blank=True, default="")
+    isp = models.CharField(max_length=128, blank=True, default="")
     lat = models.FloatField(null=True, blank=True)
     lng = models.FloatField(null=True, blank=True)
     source = models.CharField(max_length=16, blank=True, default="")
@@ -18,11 +21,11 @@ class GeoLookup(models.Model):
 
     class Meta:
         db_table = "network_geolookup"
-        verbose_name = "Geo 缓存"
-        verbose_name_plural = "Geo 缓存"
+        verbose_name = "Geo 归属地"
+        verbose_name_plural = "Geo 归属地"
 
     def __str__(self) -> str:
-        return f"{self.ip_prefix} → {self.country}/{self.city}"
+        return f"{self.ip_prefix} → {self.country}{self.region}{self.city}"
 
 
 class FlowRecord(models.Model):
