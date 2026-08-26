@@ -106,8 +106,13 @@ export function NetworkRadar({ className = "" }: { className?: string }) {
         const by = cy + Math.sin(angle) * rNorm * R;
 
         const detKey = `${peer.ip}`;
-        if (!detections.has(detKey)) detections.set(detKey, nowSec);
-        const sinceDetect = nowSec - (detections.get(detKey) ?? nowSec);
+        const detBorn = detections.get(detKey);
+        // serverOffset 回跳时 nowSec 可能小于上次记录，钳制避免负半径
+        if (detBorn == null || nowSec < detBorn) detections.set(detKey, nowSec);
+        const sinceDetect =
+          detBorn == null || nowSec < detBorn
+            ? 0
+            : Math.min(nowSec - detBorn, 1.8);
 
         // 检测脉冲
         if (sinceDetect < 1.8 && !reduced) {

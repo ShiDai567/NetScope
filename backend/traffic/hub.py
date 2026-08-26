@@ -317,7 +317,12 @@ class TrafficHub:
                 ),
                 "ikuai": {
                     **self._ikuai_info,
-                    "error": self._ikuai_error,
+                    # 已连接时以轮询器的实时状态为准（成功轮询后错误自动清零）
+                    "error": (
+                        getattr(self._poller, "last_error", None)
+                        if self._poller is not None
+                        else self._ikuai_error
+                    ),
                     "last_poll_at": getattr(self._poller, "last_poll_at", None),
                 },
             }

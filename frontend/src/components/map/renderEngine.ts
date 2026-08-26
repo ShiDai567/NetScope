@@ -772,13 +772,15 @@ export class RenderEngine {
       if (p.x < -30 || p.x > this.width + 30 || p.y < -30 || p.y > h + 30) continue;
 
       // 新节点脉冲（真实节点出现 → Pulse，AGENTS.md §48）
+      // 注意：nowSec 含 serverOffset，而 offset 会随轮询重新校准而回跳，
+      // 因此必须钳制时间差，否则 pulse > 1 会导致 arc 半径为负（IndexSizeError）
       const announced = this.announcedNodes.get(node.ip);
-      if (announced == null || nowSec - announced > 30) {
+      if (announced == null || nowSec - announced > 30 || nowSec < announced) {
         this.announcedNodes.set(node.ip, nowSec);
       }
       let pulse = 0;
-      if (announced != null) {
-        const since = nowSec - announced;
+      if (announced != null && nowSec >= announced) {
+        const since = Math.min(nowSec - announced, 1.6);
         if (since < 1.6) pulse = 1 - since / 1.6;
       }
 
