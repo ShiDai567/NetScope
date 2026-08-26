@@ -67,7 +67,7 @@ class StatsTracker:
             self.apps: dict[str, int] = {}
             self._seen_ids: set[str] = set()
             self._terminal_ids: set[str] = set()
-            self._counters: dict[str, tuple[int, int]] = {}
+            self._counters: dict[str, tuple[int, int, float]] = {}
             self._latencies: deque[tuple[float, float]] = deque(maxlen=600)
             now = time.time()
             self._bw_buckets: deque[list[float]] = deque(
@@ -114,15 +114,22 @@ class StatsTracker:
                     self._terminal_ids.add(pid)
                     self.closed += 1
 
-            # 带宽：按连接累计值的差分计入当前秒 bucket
+            # 带宽：按连接累计值的差分计入当前秒 bucket。
+            # 首次见到的连接只建立基线——历史累计流量（可能达 GB 级）
+            # 不能算作"当前瞬间带宽"，否则会出现虚假 Gbps 尖峰。
             up = int(packet.get("total_up") or 0)
             down = int(packet.get("total_down") or 0)
             prev = self._counters.get(pid)
             if prev is None:
-                d_up, d_down = up, down
+                d_up, d_down = 0, 0
             else:
                 d_up, d_down = max(0, up - prev[0]), max(0, down - prev[1])
-            self._counters[pid] = (up, down)
+            self._counters[pid] = (up, down, now)
+            if len(self._counters) > 6000:
+                cutoff = now - 600
+                self._counters = {
+                    k: v for k, v in self._counters.items() if v[2] >= cutoff
+                }
             bucket = self._bw_buckets[-1]
             if now - bucket[0] >= 1.0:
                 bucket = [now, 0.0, 0.0]

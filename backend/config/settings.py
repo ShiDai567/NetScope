@@ -23,6 +23,28 @@ def _env_bool(name: str, default: bool = False) -> bool:
     return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _load_env_file(path: Path) -> None:
+    """极简 .env 加载器（KEY=VALUE），不覆盖已存在的环境变量。"""
+    if not path.exists():
+        return
+    try:
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    except OSError:
+        pass
+
+
+_load_env_file(REPO_ROOT / ".env")
+_load_env_file(BASE_DIR / ".env")
+
+
 SECRET_KEY = os.environ.get(
     "DJANGO_SECRET_KEY", "netscope-dev-only-secret-key-change-me"
 )
@@ -71,3 +93,8 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 # 网关（内网）地理位置，用于内网节点在地图上的聚簇中心
 GATEWAY_LAT = float(os.environ.get("NETSCOPE_GATEWAY_LAT", "39.9042"))
 GATEWAY_LNG = float(os.environ.get("NETSCOPE_GATEWAY_LNG", "116.4074"))
+
+# iKuai 真实数据源：三项齐全时服务启动即自动连接（无需手动调 /api/ikuai/connect）
+IKUAI_URL = os.environ.get("NETSCOPE_IKUAI_URL", "").strip().rstrip("/")
+IKUAI_USERNAME = os.environ.get("NETSCOPE_IKUAI_USERNAME", "").strip()
+IKUAI_PASSWORD = os.environ.get("NETSCOPE_IKUAI_PASSWORD", "")

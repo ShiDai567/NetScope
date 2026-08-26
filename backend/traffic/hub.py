@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from collections import deque
@@ -14,11 +15,17 @@ from typing import Any, Optional
 
 from django.conf import settings
 
+from .geo import is_private_ip, known_geo_label
 from .ikuai import IKuaiPoller
 from .simulation import GATEWAY_IP, SimulationEngine
 from .stats import StatsTracker
 
 EVENT_LOG_SIZE = 12000
+AUTO_CONNECT_RETRY_INTERVAL = 15.0
+PUBLIC_NODE_LIMIT = 500
+PUBLIC_NODE_TTL = 900.0
+
+logger = logging.getLogger("netscope.hub")
 
 
 class TrafficHub:
@@ -36,8 +43,10 @@ class TrafficHub:
         self._devices: list[dict[str, Any]] = []
         self._active_index: dict[str, float] = {}
         self._terminal_index: dict[str, float] = {}
+        self._public_nodes: dict[str, dict[str, Any]] = {}
         self._ikuai_info: dict[str, Any] = {}
         self._ikuai_error: Optional[str] = None
+        self._retry_thread: Optional[threading.Thread] = None
 
     # ------------------------------------------------------------------
     def ensure_started(self) -> None:
@@ -45,7 +54,56 @@ class TrafficHub:
             if self._started:
                 return
             self._started = True
-            self._start_simulation_locked()
+
+        cfg = (settings.IKUAI_URL, settings.IKUAI_USERNAME, settings.IKUAI_PASSWORD)
+        if all(cfg) and self._auto_connect_ikuai(*cfg):
+            return
+
+        with self._lock:
+            # 未配置 iKuai 或自动连接失败：先以模拟模式运行（重试线程负责切换）
+            if self._mode != "ikuai":
+                self._start_simulation_locked()
+
+    def _auto_connect_ikuai(self, url: str, username: str, password: str) -> bool:
+        try:
+            self.connect_ikuai(url, username, password)
+        except Exception as exc:
+            # 登录失败 / 网络不通都不能阻塞 API 服务
+            logger.warning("iKuai 自动连接失败: %s —— 先以模拟模式运行，稍后自动重试", exc)
+            self._spawn_retry_thread(str(exc), url, username, password)
+            return False
+        logger.info("iKuai 自动连接成功: %s (%s)", url, username)
+        return True
+
+    def _spawn_retry_thread(
+        self, error: str, url: str, username: str, password: str
+    ) -> None:
+        with self._lock:
+            self._ikuai_error = error or self._ikuai_error
+            if self._retry_thread is not None and self._retry_thread.is_alive():
+                return
+            self._retry_thread = threading.Thread(
+                target=self._retry_connect_loop,
+                args=(url, username, password),
+                name="netscope-ikuai-retry",
+                daemon=True,
+            )
+            self._retry_thread.start()
+
+    def _retry_connect_loop(self, url: str, username: str, password: str) -> None:
+        while True:
+            time.sleep(AUTO_CONNECT_RETRY_INTERVAL)
+            if self._mode == "ikuai":
+                return
+            try:
+                self.connect_ikuai(url, username, password)
+            except Exception as exc:
+                logger.warning("iKuai 重连失败: %s", exc)
+                with self._lock:
+                    self._ikuai_error = str(exc)
+                continue
+            logger.info("iKuai 自动重连成功: %s", url)
+            return
 
     def _start_simulation_locked(self) -> None:
         if self._engine and self._engine.is_alive():
@@ -74,6 +132,52 @@ class TrafficHub:
             else:
                 self._active_index[pid] = now
             self._stats.ingest(event)
+            self._register_public_nodes_locked(event, now)
+
+    def _register_public_nodes_locked(self, event: dict[str, Any], now: float) -> None:
+        """从事件流的公网端点中自动发现节点（供 /api/nodes 与地图 Hover 使用）。"""
+        for key in ("source", "destination"):
+            ep = event.get(key)
+            if not isinstance(ep, dict):
+                continue
+            ip = str(ep.get("ip") or "").strip()
+            if not ip or is_private_ip(ip):
+                continue
+            lat, lng = ep.get("lat"), ep.get("lng")
+            if lat is None or lng is None:
+                continue
+            entry = self._public_nodes.get(ip)
+            if entry is None:
+                domain = ep.get("domain") or None
+                entry = {
+                    "ip": ip,
+                    "name": domain or known_geo_label(ip) or ip,
+                    "domain": domain,
+                    "lat": lat,
+                    "lng": lng,
+                    "type": "peer",
+                    "first_seen": now,
+                }
+                self._public_nodes[ip] = entry
+            if ep.get("domain") and ep["domain"] != "--":
+                entry["domain"] = ep["domain"]
+                entry["name"] = ep["domain"]
+            elif known_geo_label(ip):
+                entry["name"] = known_geo_label(ip)
+            entry["last_seen"] = now
+
+        # 容量控制：超限时淘汰最久未出现的节点
+        if len(self._public_nodes) > PUBLIC_NODE_LIMIT:
+            cutoff = now - PUBLIC_NODE_TTL
+            alive = {
+                k: v for k, v in self._public_nodes.items() if v["last_seen"] >= cutoff
+            }
+            if len(alive) > PUBLIC_NODE_LIMIT:
+                ordered = sorted(
+                    alive.items(), key=lambda kv: -kv[1]["last_seen"]
+                )[:PUBLIC_NODE_LIMIT]
+                alive = dict(ordered)
+            self._public_nodes = alive
 
     def _set_devices(self, devices: list[dict[str, Any]]) -> None:
         with self._lock:
@@ -131,7 +235,24 @@ class TrafficHub:
             ]
             if self._engine is not None and self._mode == "simulation":
                 nodes += self._engine.public_nodes()
-        return nodes
+            elif self._poller is not None:
+                # 真实模式：返回事件流中实际出现过的公网节点
+                discovered = sorted(
+                    self._public_nodes.values(),
+                    key=lambda n: -n.get("last_seen", 0),
+                )
+                nodes += [
+                    {
+                        "ip": n["ip"],
+                        "name": n.get("name") or n["ip"],
+                        "domain": n.get("domain"),
+                        "lat": n["lat"],
+                        "lng": n["lng"],
+                        "type": "peer",
+                    }
+                    for n in discovered[:400]
+                ]
+            return nodes
 
     # ------------------------------------------------------------------
     def connect_ikuai(
@@ -157,6 +278,7 @@ class TrafficHub:
             self._poller = poller
             self._mode = "ikuai"
             self._ikuai_error = None
+            self._public_nodes = {}
             self._ikuai_info = {
                 "router_url": router_url,
                 "username": username,
@@ -173,6 +295,7 @@ class TrafficHub:
                 self._poller = None
             self._ikuai_info = {}
             self._ikuai_error = None
+            self._public_nodes = {}
             self._start_simulation_locked()
         return {"mode": self._mode}
 
@@ -187,6 +310,11 @@ class TrafficHub:
                 "mode": self._mode,
                 "uptime": round(time.time() - self._started_at, 1),
                 "gateway": {"lat": self.gateway[0], "lng": self.gateway[1]},
+                "auto_connect": bool(
+                    settings.IKUAI_URL
+                    and settings.IKUAI_USERNAME
+                    and settings.IKUAI_PASSWORD
+                ),
                 "ikuai": {
                     **self._ikuai_info,
                     "error": self._ikuai_error,

@@ -107,6 +107,17 @@ npm run dev
 
 ### 接入真实 iKuai 路由器
 
+推荐在 `backend/.env`（已被 git 忽略）中配置，服务启动即自动连接：
+
+```bash
+NETSCOPE_IKUAI_URL=https://ikuai.elsworld.cn:8443
+NETSCOPE_IKUAI_USERNAME=keshihua
+NETSCOPE_IKUAI_PASSWORD=your-password
+```
+
+三项齐全时 Django 启动后自动登录路由器并切换到真实数据源；连接失败会先以模拟模式运行，
+并每 15 秒后台重试直到成功。也可以不配置环境变量、运行时手动连接：
+
 ```bash
 curl -X POST http://localhost:8000/api/ikuai/connect \
   -H "Content-Type: application/json" \
@@ -125,6 +136,9 @@ curl -X POST http://localhost:8000/api/ikuai/connect \
 | `DJANGO_DEBUG` | `true` | 生产环境设为 `false` |
 | `DJANGO_ALLOWED_HOSTS` | `localhost,127.0.0.1,0.0.0.0` | 允许的主机名 |
 | `NETSCOPE_GATEWAY_LAT` / `NETSCOPE_GATEWAY_LNG` | `39.9042` / `116.4074` | 网关地理位置（内网节点聚簇中心） |
+| `NETSCOPE_IKUAI_URL` | 空 | iKuai 面板地址，与下面两项同时配置后启动即自动连接 |
+| `NETSCOPE_IKUAI_USERNAME` | 空 | iKuai 用户名 |
+| `NETSCOPE_IKUAI_PASSWORD` | 空 | iKuai 密码 |
 
 ### 前端
 

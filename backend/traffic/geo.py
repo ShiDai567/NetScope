@@ -186,6 +186,19 @@ def _schedule_lookup(ip: str) -> None:
     _lookup_executor.submit(_fetch_and_cache, ip)
 
 
+def known_geo_label(ip: str) -> Optional[str]:
+    """只查本地表 / 缓存，不触发网络请求。返回位置标签或 None。"""
+    ip = str(ip).strip()
+    known = KNOWN_GEO.get(ip)
+    if known:
+        return known[2]
+    with _cache_lock:
+        cached = _ip_geo_cache.get(ip)
+    if cached:
+        return cached[2]
+    return None
+
+
 def locate_public_ip(ip: str) -> Tuple[float, float, str]:
     """返回公网 IP 的 (lat, lng, label)。
 
